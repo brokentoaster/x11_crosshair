@@ -10,9 +10,10 @@ find_package(X11 REQUIRED)
 # Use pkg-config to find Xfixes
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(XFIXES REQUIRED xfixes)
+pkg_check_modules(XI REQUIRED xi)
 
 # Create executable from main.cpp
-add_executable(x11_crosshair main.cpp)
+add_executable(x11_crosshair main_sel.cpp)
 
 
 
@@ -20,6 +21,7 @@ add_executable(x11_crosshair main.cpp)
 target_include_directories(x11_crosshair PRIVATE
         ${X11_INCLUDE_DIR}
         ${XFIXES_INCLUDE_DIRS}
+        ${XI_INCLUDE_DIRS}
 )
 
 
@@ -27,6 +29,7 @@ target_include_directories(x11_crosshair PRIVATE
 target_link_libraries(x11_crosshair PRIVATE
         ${X11_LIBRARIES}
         ${XFIXES_LIBRARIES}
+        ${XI_LIBRARIES}
 )
 
 
@@ -39,10 +42,12 @@ add_executable(x11_crosshair2 main2.cpp CrosshairOverlay.cpp)
 target_include_directories(x11_crosshair2 PRIVATE
         ${X11_INCLUDE_DIR}
         ${XFIXES_INCLUDE_DIRS}
+        ${XI_INCLUDE_DIRS}
 )
 target_link_libraries(x11_crosshair2 PRIVATE
         ${X11_LIBRARIES}
         ${XFIXES_LIBRARIES}
+        ${XI_LIBRARIES}
 )
 target_compile_options(x11_crosshair2 PRIVATE -O3 -march=native -mtune=native -fno-exceptions -fno-rtti -flto -pipe -Wall -Wextra -Wpedantic)
 target_link_options(x11_crosshair2 PRIVATE -flto -Wl,-O3 -Wl,--as-needed)
@@ -70,4 +75,7 @@ endif()
 # If pkg-config reported library dirs, ensure the linker can find them
 if(XFIXES_LIBRARY_DIRS)
     link_directories(${XFIXES_LIBRARY_DIRS})
+endif()
+if(XI_LIBRARY_DIRS)
+    link_directories(${XI_LIBRARY_DIRS})
 endif()

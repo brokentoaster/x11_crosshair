@@ -95,7 +95,7 @@ public:
 
       if (!XQueryPointer(display, root, &root_return, &child_return, &root_x,
                          &root_y, &win_x, &win_y, &mask)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(std::chrono::milliseconds(15));
         continue;
       }
 
@@ -139,7 +139,7 @@ public:
       XRaiseWindow(display, window);
       XFlush(display);
 
-      std::this_thread::sleep_for(std::chrono::milliseconds(160));
+      std::this_thread::sleep_for(std::chrono::milliseconds(15));
     }
   }
 

@@ -38,6 +38,8 @@ class CrosshairOverlay  {
         Window window {0};
         GC gc {nullptr};
         GC black_gc {nullptr};
+        int xi_opcode {0};
+        bool xi2_enabled {false};
 };
 
 #endif /* !CROSSHAIROVERLAY_H */
