@@ -4,10 +4,13 @@
 #include <X11/Xatom.h>
 #include <X11/extensions/Xfixes.h>
 #include <X11/extensions/shape.h>
+#include <X11/extensions/XInput2.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <poll.h>
 #include <stdexcept>
 #include <thread>
 #include <mutex>
@@ -43,7 +46,7 @@ private:
     std::mutex dataMutex;
     std::string primaryText;
     std::string clipboardText;
-    bool running;
+    std::atomic<bool> running;
 
     // Sanitize text: remove newlines, truncate length to keep UI clean
     std::string sanitize(const std::string &in) {
@@ -64,27 +67,31 @@ private:
         XConvertSelection(disp, selection, target, prop, win, CurrentTime);
         XFlush(disp);
 
-        // Wait for SelectionNotify (with timeout)
-        // Since we are in a thread, we can use a small busy-wait or loop
-        // standard XNextEvent blocks, but we want a timeout.
-        auto start = std::chrono::steady_clock::now();
-        bool gotEvent = false;
+        // Wait for SelectionNotify with poll-based timeout
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(100);
         XEvent ev;
-        
-        while (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(100)) {
-            if (XCheckTypedEvent(disp, SelectionNotify, &ev)) {
+        while (std::chrono::steady_clock::now() < deadline) {
+            while (XCheckTypedEvent(disp, SelectionNotify, &ev)) {
                 if (ev.xselection.requestor == win && ev.xselection.selection == selection) {
-                    gotEvent = true;
-                    break;
+                    if (ev.xselection.property == None) {
+                        return "";
+                    }
+                    goto have_event;
                 }
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            const auto now = std::chrono::steady_clock::now();
+            const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+            if (remaining <= 0) {
+                return "";
+            }
+            pollfd pfd{ConnectionNumber(disp), POLLIN, 0};
+            if (poll(&pfd, 1, static_cast<int>(remaining)) <= 0) {
+                return "";
+            }
         }
+        return "";
 
-        if (!gotEvent || ev.xselection.property == None) {
-            return ""; // Failed or empty
-        }
-
+    have_event:
         // Read the property
         Atom actualType;
         int actualFormat;
@@ -123,7 +130,7 @@ private:
         Atom UTF8_STRING = XInternAtom(tDisp, "UTF8_STRING", False);
         Atom SEL_DATA = XInternAtom(tDisp, "XSEL_DATA", False);
 
-        while (running) {
+        while (running.load()) {
             std::string p, c;
 
             // 1. Try to fetch PRIMARY (Middle click)
@@ -141,11 +148,9 @@ private:
                 clipboardText = sanitize(c);
             }
 
-            // Sleep a bit (200ms total)
-            for(int i=0; i<20; ++i) {
-                if(!running) break; 
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            }
+            // Poll with a timeout instead of sleeping
+            pollfd pfd{ConnectionNumber(tDisp), POLLIN, 0};
+            poll(&pfd, 1, 200);
         }
 
         XDestroyWindow(tDisp, tWin);
@@ -197,6 +202,30 @@ public:
     XMapRaised(display, window);
     XFlush(display);
 
+    XSelectInput(display, root, PointerMotionMask);
+
+    // XI2 Raw Motion (keeps tracking even when apps grab the pointer)
+    int xi_opcode = 0;
+    int xi_event = 0;
+    int xi_error = 0;
+    xi2_enabled = false;
+    if (XQueryExtension(display, "XInputExtension", &xi_opcode, &xi_event, &xi_error)) {
+        int major = 2;
+        int minor = 0;
+        if (XIQueryVersion(display, &major, &minor) == Success) {
+            unsigned char mask_data[XIMaskLen(XI_RawMotion)];
+            std::memset(mask_data, 0, sizeof(mask_data));
+            XISetMask(mask_data, XI_RawMotion);
+            XIEventMask mask{};
+            mask.deviceid = XIAllMasterDevices;
+            mask.mask_len = sizeof(mask_data);
+            mask.mask = mask_data;
+            XISelectEvents(display, root, &mask, 1);
+            xi2_enabled = true;
+            this->xi_opcode = xi_opcode;
+        }
+    }
+
     // GCs
     gc_white = XCreateGC(display, window, 0, nullptr);
     XSetForeground(display, gc_white, WhitePixel(display, screen));
@@ -234,6 +263,12 @@ public:
   void run() {
     SelectionMonitor selectionMonitor; // Start the background thread
     const int thickness = 3; 
+    const auto min_interval = std::chrono::milliseconds(16);
+    auto last_render = std::chrono::steady_clock::now() - min_interval;
+    int last_x = -1;
+    int last_y = -1;
+    std::string last_primary;
+    std::string last_clipboard;
 
     // Text box settings
     const int text_margin_x = 15;
@@ -242,20 +277,47 @@ public:
     const int padding = 4;
 
     while (true) {
-      int root_x = 0, root_y = 0, win_x = 0, win_y = 0;
+      int root_x = last_x, root_y = last_y, win_x = 0, win_y = 0;
       unsigned int mask = 0;
       Window child_return, root_return;
 
+      pollfd pfd{ConnectionNumber(display), POLLIN, 0};
+      poll(&pfd, 1, static_cast<int>(min_interval.count()));
+
+      XEvent ev;
+      while (XPending(display)) {
+        XNextEvent(display, &ev);
+        if (xi2_enabled && ev.type == GenericEvent &&
+            ev.xcookie.extension == xi_opcode && XGetEventData(display, &ev.xcookie)) {
+          if (ev.xcookie.evtype == XI_RawMotion) {
+            // We'll query absolute position below.
+          }
+          XFreeEventData(display, &ev.xcookie);
+        }
+      }
+
       if (!XQueryPointer(display, root, &root_return, &child_return, &root_x,
                          &root_y, &win_x, &win_y, &mask)) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(15));
         continue;
       }
 
       // 1. Get current text strings
       std::string prim, clip;
       selectionMonitor.getSelections(prim, clip);
-      
+
+      const bool position_changed = (root_x != last_x || root_y != last_y);
+      const bool text_changed = (prim != last_primary || clip != last_clipboard);
+      const auto now = std::chrono::steady_clock::now();
+      if (!position_changed && !text_changed && (now - last_render) < min_interval) {
+        continue;
+      }
+
+      last_x = root_x;
+      last_y = root_y;
+      last_primary = prim;
+      last_clipboard = clip;
+      last_render = now;
+
       // Prepare text to display
       std::vector<std::string> lines;
       if (!prim.empty()) lines.push_back("P: " + prim);
@@ -343,8 +405,6 @@ public:
       XFlush(display);
       XRaiseWindow(display, window);
       XFlush(display);
-
-      std::this_thread::sleep_for(std::chrono::milliseconds(15));
     }
   }
 
@@ -357,6 +417,8 @@ private:
   GC gc_black = nullptr;
   GC gc_stipple = nullptr;
   XFontStruct* font_struct = nullptr;
+  int xi_opcode = 0;
+  bool xi2_enabled = false;
 };
 
 int main() {
