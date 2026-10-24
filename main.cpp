@@ -180,24 +180,35 @@ private:
         return "";
 
     have_event:
-        // Read the property
+        // Read the property, looping while the server reports more data
         Atom actualType;
         int actualFormat;
         unsigned long nitems, bytesAfter;
         unsigned char *propData = nullptr;
+        std::string result;
+        unsigned long offset = 0;
 
-        if (XGetWindowProperty(disp, win, prop, 0, 1024, False, AnyPropertyType,
-                               &actualType, &actualFormat, &nitems, &bytesAfter,
-                               &propData) == Success) {
-            std::string result;
+        while (true) {
+            if (XGetWindowProperty(disp, win, prop, offset, 1024, False,
+                                   AnyPropertyType, &actualType, &actualFormat,
+                                   &nitems, &bytesAfter, &propData) != Success) {
+                break;
+            }
             if (propData) {
-                result = std::string((char*)propData);
+                result.append(reinterpret_cast<char *>(propData), nitems);
                 XFree(propData);
             }
+            offset += nitems;
+            if (bytesAfter == 0 || nitems == 0) {
+                break;
+            }
+        }
+        if (!result.empty()) {
             // Cleanup property
             XDeleteProperty(disp, win, prop);
             return result;
         }
+        XDeleteProperty(disp, win, prop);
         return "";
     }
 
