@@ -2,16 +2,27 @@
 
 ## Project
 
-`x11_crosshair`: an X11 overlay that draws a click-through, always-on-top crosshair following the pointer, plus a display of the current PRIMARY/CLIPBOARD selection text. Plain C++20 against Xlib, XFIXES, and XInput2. No tests, no CI, no linter config.
+`x11_crosshair`: an X11 overlay that draws a click-through, always-on-top crosshair following the pointer, plus a display of the current PRIMARY/CLIPBOARD selection text. Plain C++20 against Xlib, XFIXES, and XInput2. No linter config; CI and unit tests exist (GitHub Actions, ctest).
+
+## Layout
+
+- `main.cpp` — overlay window setup, event/poll loop, drawing.
+- `options.hpp` — `Options`, argument parsing (`parseArgs`), and the pure idle/fade state machine (`evaluateIdle`); X-free so it is unit-testable.
+- `selection_monitor.hpp` — `SelectionMonitor` background thread with its own X connection.
+- `tests/test_logic.cpp` — assert-harness tests for parsing and idle state (no X needed).
+- `.clang-format` — LLVM-based, 2-space indent, 100 columns; run `clang-format -i` on touched sources.
 
 ## Build
 
 ```sh
 mkdir -p build && cd build
 cmake ..
-make            # builds x11_crosshair
+make            # builds x11_crosshair (and tests by default)
+ctest           # runs the logic tests
 ./x11_crosshair # run from the build dir; stop with pkill x11_crosshair
 ```
+
+CI (`.github/workflows/ci.yml`) builds with `-Wconversion` + `-Werror` and runs the tests, plus an ASan/UBSan job.
 
 Requires `libx11-dev`, `libxfixes-dev`, `libxi-dev`, `pkg-config`, CMake ≥ 3.13, C++20 compiler.
 
@@ -25,13 +36,13 @@ A single `main.cpp` implements all modes, selected by command-line flags (see RE
 - The overlay window is `override_redirect` (no WM decorations) and is re-raised each frame; a 32-bit TrueColor visual + matching colormap is requested when available.
 - Selection fetching can block (other clients own selections); it must stay in the `SelectionMonitor` background thread with a poll-based 100 ms timeout per fetch (UTF8_STRING first, XA_STRING fallback), re-polling both PRIMARY and CLIPBOARD roughly every 200 ms via its own display connection — never move it onto the render/event thread.
 - Sanitization conventions for displayed selection text: newlines → spaces, truncate at 50 chars with `...`.
-- Event-driven motion: the main target selects `XI_RawMotion` on the root window via XInput2 (`XISelectEvents`), received through `XNextEvent` + cookie retrieval. Keep this design (it exists to reduce CPU vs polling).
+- Event-driven motion: the main target selects `XI_RawMotion` on the root window via XInput2 (`XISelectEvents`); the loop waits on the connection (up to 250 ms safety net, or until the idle deadline when `--fade-ms` is active) and renders on motion. Keep this design (it exists to reduce CPU vs polling).
 - Xlib calls are buffered; `XFlush` after map/raise/draw is required for responsiveness.
 - Idle hiding: the run loop tracks last pointer motion; once idle past `--fade-ms` it clears `ShapeBounding` and skips drawing until the next motion. `--fade-duration` ramps the drawing GC foreground alpha (ARGB, `alpha << 24 | rgb`) down over the duration before hiding; visible only with the 32-bit visual + compositor, elsewhere the abrupt hide remains.
 
 ## Style
 
-- C++20, compile flags `-Wall -Wextra -Wpedantic` (keep warning-free).
-- Single-file implementation, no external deps beyond X11/XFIXES/XI. Prefer adding to the existing file over introducing new headers/libraries.
+- C++20, compile flags `-Wall -Wextra -Wpedantic -Wconversion` (CI enforces with `-Werror`; keep warning-free locally too).
+- Header/module split above; keep pure logic (parsing, idle state, layout math) X-free and covered by tests. No external deps beyond X11/XFIXES/XI.
 - Naming: PascalCase classes, camelCase members/functions.
 - Specs and implementation plans live in `docs/workplans/` (`*-Spec.md` / `*-Plan.md` pairs).

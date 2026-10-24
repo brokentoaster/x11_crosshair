@@ -35,6 +35,16 @@ cmake ..
 make
 ```
 
+## Test
+Unit tests cover option parsing and the idle/fade state machine (no X
+server needed):
+```
+ctest --test-dir build
+```
+CI builds with warnings-as-errors (including `-Wconversion`) and runs
+the tests, plus an AddressSanitizer/UBSan job (see
+`.github/workflows/ci.yml`).
+
 ## Run
 From the build directory:
 ```
