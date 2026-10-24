@@ -19,11 +19,12 @@ A small X11 overlay that draws a click-through crosshair on top of all windows. 
 ## Dependencies
 - X11 development headers (libx11-dev)
 - Xfixes development headers (libxfixes-dev)
-- pkg-config, cmake, a C++17 compiler
+- XInput2 development headers (libxi-dev)
+- pkg-config, cmake, a C++20 compiler
 
 On Debian/Ubuntu:
 ```
-sudo apt install build-essential cmake pkg-config libx11-dev libxfixes-dev
+sudo apt install build-essential cmake pkg-config libx11-dev libxfixes-dev libxi-dev
 ```
 
 ## Build
@@ -37,7 +38,7 @@ make
 ## Run
 From the build directory:
 ```
-./x11_crosshair
+./x11_crosshair [options]
 ```
 Run it in background if desired:
 ```
@@ -45,6 +46,16 @@ Run it in background if desired:
 ```
 
 To stop it, kill the process (e.g. `pkill x11_crosshair`).
+
+## Options
+| Option           | Effect                                                                                                         |
+|------------------|----------------------------------------------------------------------------------------------------------------|
+| `--poll [MS]`    | Track the pointer by polling XQueryPointer every MS ms (default 10) instead of using XInput2 raw-motion events |
+| `--no-selection` | Do not display the current PRIMARY/CLIPBOARD text                                                              |
+| `--thickness N`  | Crosshair line thickness in px (default 3)                                                                     |
+| `--help`         | Show options and defaults                                                                                      |
+
+With no arguments the overlay uses XInput2 events, shows the selection text, and draws a 3 px crosshair.
 
 ## What this program accomplishes and how it works
 
@@ -59,7 +70,7 @@ To stop it, kill the process (e.g. `pkill x11_crosshair`).
   - Uses the XFIXES extension to:
     - Set the ShapeInput region to an empty region (no input area) so the window is click-through.
     - Set the ShapeBounding region to two thin rectangles (horizontal + vertical) that define the visible crosshair area — only those pixels are drawn, the rest is transparent.
-  - Uses XQueryPointer (synchronous) each loop to get the current pointer coordinates.
+  - Wakes on XInput2 raw-motion events (XI_RawMotion on the root window) when the pointer moves, reducing CPU versus polling; `--poll` falls back to synchronous XQueryPointer round-trips for environments without XI2.
   - Draws the thick white crosshair using XFillRectangles and draws 1px stippled/dashed black lines using a separate GC to improve contrast.
   - Calls XMapRaised/XRaiseWindow and XFlush to ensure the overlay is visible and stays on top.
 
@@ -72,7 +83,7 @@ To stop it, kill the process (e.g. `pkill x11_crosshair`).
   - If XQueryPointer returns false (rare, e.g., if the server temporarily cannot report pointer position), the code sleeps for 50 ms before retrying. This avoids tight retry loops that would waste CPU and logs while waiting for the X server to respond.
 
 - per-frame sleep (10 ms)
-  - After updating the shape and drawing each frame the loop sleeps for 10 ms. This:
+  - In polling mode (`--poll`) the loop sleeps 10 ms between XQueryPointer round-trips. This:
     - Limits CPU usage so the overlay does not spin at 100% CPU.
     - Gives a responsive update rate (~100 FPS upper bound) which is well beyond typical perceptual needs for pointer-tracking while keeping motion smooth.
     - Balances responsiveness vs. resource use; adjust this value if you prefer lower CPU or different responsiveness (e.g., 16 ms for ~60 FPS).
