@@ -11,9 +11,67 @@
 #include <cstring>
 #include <iostream>
 #include <poll.h>
+
+struct Options {
+  int pollIntervalMs = 0; // 0 = event-driven (XInput2)
+  bool showSelection = true;
+  int thickness = 3;
+};
+
+static void printUsage(const char *argv0, std::ostream &os) {
+  os << "Usage: " << argv0 << " [options]\n"
+     << "Options:\n"
+     << "  --poll [MS]       Poll pointer position every MS ms"
+     << " (default 10) instead of using XInput2 events\n"
+     << "  --no-selection    Do not display PRIMARY/CLIPBOARD text\n"
+     << "  --thickness N     Crosshair line thickness in px (default 3)\n"
+     << "  --help            Show this help\n"
+     << "Defaults reproduce the plain `x11_crosshair` behaviour.\n";
+}
+
+// Returns 0 to continue, 1 on error (usage printed), 2 if --help printed.
+static int parseArgs(int argc, char **argv, Options &opts) {
+  for (int i = 1; i < argc; ++i) {
+    const std::string arg = argv[i];
+    if (arg == "--help") {
+      printUsage(argv[0], std::cout);
+      return 2;
+    } else if (arg == "--poll") {
+      opts.pollIntervalMs = 10;
+      if (i + 1 < argc && argv[i + 1][0] != '-') {
+        opts.pollIntervalMs = std::atoi(argv[++i]);
+        if (opts.pollIntervalMs <= 0) {
+          std::cerr << "Invalid --poll interval: " << argv[i] << "\n";
+          printUsage(argv[0], std::cerr);
+          return 1;
+        }
+      }
+    } else if (arg == "--no-selection") {
+      opts.showSelection = false;
+    } else if (arg == "--thickness") {
+      if (i + 1 >= argc) {
+        std::cerr << "--thickness requires a value\n";
+        printUsage(argv[0], std::cerr);
+        return 1;
+      }
+      opts.thickness = std::atoi(argv[++i]);
+      if (opts.thickness <= 0 || opts.thickness > 200) {
+        std::cerr << "Invalid --thickness value: " << argv[i] << "\n";
+        printUsage(argv[0], std::cerr);
+        return 1;
+      }
+    } else {
+      std::cerr << "Unknown option: " << arg << "\n";
+      printUsage(argv[0], std::cerr);
+      return 1;
+    }
+  }
+  return 0;
+}
 #include <stdexcept>
 #include <thread>
 #include <mutex>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -162,7 +220,7 @@ private:
 
 class CrosshairOverlay {
 public:
-  CrosshairOverlay() {
+  explicit CrosshairOverlay(const Options &opts) : options(opts) {
     display = XOpenDisplay(nullptr);
     if (!display)
       throw std::runtime_error("Failed to open X display");
@@ -260,15 +318,13 @@ public:
     if (display) XCloseDisplay(display);
   }
 
-  void run() {
-    SelectionMonitor selectionMonitor; // Start the background thread
-    const int thickness = 3; 
+  void run(SelectionMonitor *selectionMonitor) {
+    const int thickness = options.thickness;
     const auto min_interval = std::chrono::milliseconds(16);
     auto last_render = std::chrono::steady_clock::now() - min_interval;
     int last_x = -1;
     int last_y = -1;
-    std::string last_primary;
-    std::string last_clipboard;
+    std::vector<std::string> last_lines;
 
     // Text box settings
     const int text_margin_x = 15;
@@ -302,11 +358,16 @@ public:
       }
 
       // 1. Get current text strings
-      std::string prim, clip;
-      selectionMonitor.getSelections(prim, clip);
+      std::vector<std::string> lines;
+      if (selectionMonitor) {
+        std::string prim, clip;
+        selectionMonitor->getSelections(prim, clip);
+        if (!prim.empty()) lines.push_back("P: " + prim);
+        if (!clip.empty()) lines.push_back("C: " + clip);
+      }
 
       const bool position_changed = (root_x != last_x || root_y != last_y);
-      const bool text_changed = (prim != last_primary || clip != last_clipboard);
+      const bool text_changed = (lines != last_lines);
       const auto now = std::chrono::steady_clock::now();
       if (!position_changed && !text_changed && (now - last_render) < min_interval) {
         continue;
@@ -314,14 +375,8 @@ public:
 
       last_x = root_x;
       last_y = root_y;
-      last_primary = prim;
-      last_clipboard = clip;
+      last_lines = lines;
       last_render = now;
-
-      // Prepare text to display
-      std::vector<std::string> lines;
-      if (!prim.empty()) lines.push_back("P: " + prim);
-      if (!clip.empty()) lines.push_back("C: " + clip);
 
       // 2. Calculate text box geometry
       int box_w = 0;
@@ -408,6 +463,7 @@ public:
     }
   }
 
+  Options options;
 private:
   Display *display = nullptr;
   int screen = 0;
@@ -421,10 +477,19 @@ private:
   bool xi2_enabled = false;
 };
 
-int main() {
+int main(int argc, char **argv) {
+  Options opts;
+  const int rc = parseArgs(argc, argv, opts);
+  if (rc == 1)
+    return 1;
+  if (rc == 2)
+    return 0;
   try {
-    CrosshairOverlay overlay;
-    overlay.run();
+    CrosshairOverlay overlay(opts);
+    std::unique_ptr<SelectionMonitor> selectionMonitor;
+    if (opts.showSelection)
+      selectionMonitor = std::make_unique<SelectionMonitor>();
+    overlay.run(selectionMonitor.get());
   } catch (const std::exception &e) {
     std::cerr << "Error: " << e.what() << std::endl;
     return 1;
