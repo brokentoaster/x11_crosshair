@@ -12,8 +12,8 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(XFIXES REQUIRED xfixes)
 pkg_check_modules(XI REQUIRED xi)
 
-# Create executable from main.cpp
-add_executable(x11_crosshair main_sel.cpp)
+# Single executable: overlay with runtime-selectable modes
+add_executable(x11_crosshair main.cpp)
 
 
 
@@ -37,20 +37,6 @@ target_link_libraries(x11_crosshair PRIVATE
 
 # Add some useful compiler flags
 target_compile_options(x11_crosshair PRIVATE -Wall -Wextra -Wpedantic)
-
-add_executable(x11_crosshair2 main2.cpp CrosshairOverlay.cpp)
-target_include_directories(x11_crosshair2 PRIVATE
-        ${X11_INCLUDE_DIR}
-        ${XFIXES_INCLUDE_DIRS}
-        ${XI_INCLUDE_DIRS}
-)
-target_link_libraries(x11_crosshair2 PRIVATE
-        ${X11_LIBRARIES}
-        ${XFIXES_LIBRARIES}
-        ${XI_LIBRARIES}
-)
-target_compile_options(x11_crosshair2 PRIVATE -O3 -march=native -mtune=native -fno-exceptions -fno-rtti -flto -pipe -Wall -Wextra -Wpedantic)
-target_link_options(x11_crosshair2 PRIVATE -flto -Wl,-O3 -Wl,--as-needed)
 
 # Aggressive GCC-only optimizations for Release builds
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
