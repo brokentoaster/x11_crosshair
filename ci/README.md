@@ -12,7 +12,7 @@ packages. Nothing else by design — keep the image minimal.
 
 ## Image name and tags
 
-- `ghcr.io/plops/x11-crosshair-ci:<version>` (currently `1`) — what `ci.yml`
+- `ghcr.io/brokentoaster/x11-crosshair-ci:<version>` (currently `1`) — what `ci.yml`
   pins.
 - `:latest` — newest published image.
 - `:<git-sha>` — exact provenance for each publish.
@@ -20,7 +20,7 @@ packages. Nothing else by design — keep the image minimal.
 ## Build locally
 
 ```sh
-docker build -f ci/Dockerfile -t ghcr.io/plops/x11-crosshair-ci:1 .
+docker build -f ci/Dockerfile -t ghcr.io/brokentoaster/x11-crosshair-ci:1 .
 # If DNS fails inside the build, use: docker build --network=host ...
 ```
 

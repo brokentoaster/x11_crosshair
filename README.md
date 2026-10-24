@@ -2,7 +2,7 @@
 
 A small X11 overlay that draws a click-through crosshair on top of all windows. It provides a lightweight visible pointer overlay useful in situations where the native cursor is invisible, hard to see, or when you want a persistent crosshair for presentations, demos, accessibility, or debugging.
 
-[![x11_crosshair screenshot](https://raw.githubusercontent.com/plops/x11_crosshair/main/screenshot.webp)](https://github.com/plops/x11_crosshair/blob/main/screenshot.webp)
+[![x11_crosshair screenshot](screenshot.webp)](screenshot.webp)
 
 
 ## Features
