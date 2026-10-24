@@ -15,7 +15,7 @@
   last, so the build stays green throughout.
 
 ## Tasks
-- [ ] Task 1: Add option parsing and Options struct to `main_sel.cpp`
+- [x] Task 1: Add option parsing and Options struct to `main_sel.cpp`
   - Notes: struct fields `pollIntervalMs` (0 = event mode), `showSelection`
     (true), `thickness` (3). Parse `--poll [MS]`, `--no-selection`,
     `--thickness N`, `--help`; unknown option → usage on stderr, exit 1
@@ -25,7 +25,7 @@
   - Touchpoints: `main_sel.cpp`
   - Done when: `./x11_crosshair --help` prints options/defaults and exits 0;
     no-arg run behaves as today (spec AC 2, 6).
-- [ ] Task 2: Implement polling tracking mode inside the same run loop
+- [x] Task 2: Implement polling tracking mode inside the same run loop
   - Notes: when `pollIntervalMs > 0`, skip the XI2/XPending wait and drive the
     loop with `XQueryPointer` + sleep(pollIntervalMs); skip `XISelectEvents`
     setup in the constructor in this mode. Preserve the redraw-on-change
@@ -33,20 +33,20 @@
   - Touchpoints: `main_sel.cpp`
   - Done when: `--poll` and `--poll 50` track the pointer at the requested
     cadence; overlay stays click-through and on top (spec AC 3, 7).
-- [ ] Task 3: Make selection display conditional
+- [x] Task 3: Make selection display conditional
   - Notes: construct `SelectionMonitor` only when `showSelection` is true;
     when false, build `lines` empty so no text box rect is ever emitted.
     Verify no second display connection is opened (spec AC 4).
   - Touchpoints: `main_sel.cpp` (`SelectionMonitor` usage in `run()`)
   - Done when: `--no-selection` shows crosshair only (spec AC 4).
-- [ ] Task 4: Make crosshair thickness configurable
+- [x] Task 4: Make crosshair thickness configurable
   - Notes: replace the hardcoded `const int thickness = 3` with
     `options.thickness`; watch the `unsigned short` casts and the
     `root_x - thickness / 2` centering math for N=1.
   - Touchpoints: `main_sel.cpp`
   - Done when: `--thickness 7` draws a 7 px crosshair; `--thickness 1` stays
     centered and warning-free (spec AC 5).
-- [ ] Task 5: Consolidate to a single CMake target and delete duplicates
+- [x] Task 5: Consolidate to a single CMake target and delete duplicates
   - Notes: rename `main_sel.cpp` → `main.cpp` (replacing old `main.cpp`),
     drop the `x11_crosshair2` target and its special flags from
     CMakeLists.txt, delete `main2.cpp`, `CrosshairOverlay.h/.cpp`, and
@@ -56,7 +56,7 @@
   - Touchpoints: `CMakeLists.txt`, `main.cpp`, repo root
   - Done when: only one target exists, `make` builds warning-free, no stale
     sources remain (spec AC 1).
-- [ ] Task 6: Update README.md and AGENTS.md
+- [x] Task 6: Update README.md and AGENTS.md
   - Notes: README — single build/run section, new flags table, remove
     x11_crosshair2/generated-code references and the stale C++17 note.
     AGENTS.md — remove "multiple entry points" and "generated code" sections,
