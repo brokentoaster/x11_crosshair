@@ -16,6 +16,7 @@ struct Options {
   int pollIntervalMs = 0; // 0 = event-driven (XInput2)
   bool showSelection = true;
   int thickness = 3;
+  int fadeMs = 0; // 0 = never hide on idle
 };
 
 static void printUsage(const char *argv0, std::ostream &os) {
@@ -25,6 +26,8 @@ static void printUsage(const char *argv0, std::ostream &os) {
      << " (default 10) instead of using XInput2 events\n"
      << "  --no-selection    Do not display PRIMARY/CLIPBOARD text\n"
      << "  --thickness N     Crosshair line thickness in px (default 3)\n"
+     << "  --fade-ms N       Hide overlay after N ms of no pointer motion"
+     << " (0 = never hide, default)\n"
      << "  --help            Show this help\n"
      << "Defaults reproduce the plain `x11_crosshair` behaviour.\n";
 }
@@ -48,6 +51,18 @@ static int parseArgs(int argc, char **argv, Options &opts) {
       }
     } else if (arg == "--no-selection") {
       opts.showSelection = false;
+    } else if (arg == "--fade-ms") {
+      if (i + 1 >= argc) {
+        std::cerr << "--fade-ms requires a value\n";
+        printUsage(argv[0], std::cerr);
+        return 1;
+      }
+      opts.fadeMs = std::atoi(argv[++i]);
+      if (opts.fadeMs < 0) {
+        std::cerr << "Invalid --fade-ms value: " << argv[i] << "\n";
+        printUsage(argv[0], std::cerr);
+        return 1;
+      }
     } else if (arg == "--thickness") {
       if (i + 1 >= argc) {
         std::cerr << "--thickness requires a value\n";
@@ -327,6 +342,8 @@ public:
     int last_x = -1;
     int last_y = -1;
     std::vector<std::string> last_lines;
+    auto last_motion = std::chrono::steady_clock::now();
+    bool hidden = false;
 
     // Text box settings
     const int text_margin_x = 15;
@@ -377,6 +394,33 @@ public:
       const bool position_changed = (root_x != last_x || root_y != last_y);
       const bool text_changed = (lines != last_lines);
       const auto now = std::chrono::steady_clock::now();
+
+      if (position_changed) {
+        last_motion = now;
+        hidden = false;
+      }
+
+      if (options.fadeMs > 0 && (now - last_motion) >=
+                                    std::chrono::milliseconds(options.fadeMs)) {
+        if (!hidden) {
+          // Idle: hide by clearing the bounding region; keep the window
+          // mapped and the click-through input region untouched.
+          XserverRegion emptyRegion = XFixesCreateRegion(display, nullptr, 0);
+          XFixesSetWindowShapeRegion(display, window, ShapeBounding, 0, 0,
+                                     emptyRegion);
+          XFixesDestroyRegion(display, emptyRegion);
+          XFlush(display);
+          hidden = true;
+        }
+        // Skip all drawing work while idle; any pointer motion (XI2 event or
+        // polled movement) wakes the loop and re-shows via the render path.
+        continue;
+      }
+      if (hidden) {
+        // Not idle long enough yet but was hidden: fall through and re-render.
+        hidden = false;
+      }
+
       if (!position_changed && !text_changed && (now - last_render) < min_interval) {
         continue;
       }
