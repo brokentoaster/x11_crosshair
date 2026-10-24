@@ -7,32 +7,29 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/plops/x11-crosshair-ci:1
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libxfixes-dev libxi-dev pkg-config
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_CXX_FLAGS="-Wconversion"
+        run: cmake -S . -B build -DCMAKE_CXX_FLAGS="-Wconversion -Werror"
       - name: Build
-        run: cmake --build build -- -Werror 2>/dev/null || cmake --build build
+        run: cmake --build build -j4
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
   asan:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/plops/x11-crosshair-ci:1
     steps:
       - uses: actions/checkout@v4
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libxfixes-dev libxi-dev pkg-config
       - name: Configure with sanitizers
-        run: cmake -S . -B build-asan
-             -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -g -Wconversion"
-             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+        run: >-
+          cmake -S . -B build-asan
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -g -Wconversion -Werror"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
       - name: Build
-        run: cmake --build build-asan
+        run: cmake --build build-asan -j4
       - name: Test (tests only; overlay needs a display)
         run: ctest --test-dir build-asan --output-on-failure -R logic

@@ -231,22 +231,22 @@ class CrosshairOverlay {
 
       // Crosshair Horizontal
       rects[0].x = 0;
-      rects[0].y = std::max(0, root_y - thickness / 2);
+      rects[0].y = static_cast<short>(std::max(0, root_y - thickness / 2));
       rects[0].width = static_cast<unsigned short>(scr_w);
       rects[0].height = static_cast<unsigned short>(thickness);
 
       // Crosshair Vertical
-      rects[1].x = std::max(0, root_x - thickness / 2);
+      rects[1].x = static_cast<short>(std::max(0, root_x - thickness / 2));
       rects[1].y = 0;
       rects[1].width = static_cast<unsigned short>(thickness);
       rects[1].height = static_cast<unsigned short>(scr_h);
 
       // Text Box (if needed)
       if (!lines.empty()) {
-        rects[2].x = box.x;
-        rects[2].y = box.y;
-        rects[2].width = box.w;
-        rects[2].height = box.h;
+        rects[2].x = static_cast<short>(box.x);
+        rects[2].y = static_cast<short>(box.y);
+        rects[2].width = static_cast<unsigned short>(box.w);
+        rects[2].height = static_cast<unsigned short>(box.h);
         rect_count = 3;
       }
 
@@ -309,7 +309,7 @@ class CrosshairOverlay {
     for (const auto &line : lines) {
       int w = 0;
       if (font_struct)
-        w = XTextWidth(font_struct, line.c_str(), line.length());
+        w = XTextWidth(font_struct, line.c_str(), static_cast<int>(line.length()));
       else
         w = static_cast<int>(line.length()) * 6;
       if (w > box.w)
@@ -366,7 +366,8 @@ class CrosshairOverlay {
       // Draw text strings
       int txt_y = box.y + padding + (font_struct ? font_struct->ascent : 10);
       for (const auto &line : lines) {
-        XDrawString(display, window, gc_white, box.x + padding, txt_y, line.c_str(), line.length());
+        XDrawString(display, window, gc_white, box.x + padding, txt_y,
+                    line.c_str(), static_cast<int>(line.length()));
         txt_y += line_height;
       }
     }

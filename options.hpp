@@ -111,7 +111,9 @@ static IdleState evaluateIdle(int fadeMs, int fadeDurationMs, long idleMsSinceMo
   const long idleMs = idleMsSinceMotion - fadeMs;
   if (fadeDurationMs > 0 && idleMs < fadeDurationMs) {
     state.fading = true;
-    state.alpha = 255 - static_cast<int>(255.0 * idleMs / fadeDurationMs);
+    state.alpha =
+        255 - static_cast<int>(255.0 * static_cast<double>(idleMs) /
+                               static_cast<double>(fadeDurationMs));
     if (state.alpha < 0) {
       state.alpha = 0;
     }
