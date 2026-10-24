@@ -7,6 +7,7 @@
 #include <X11/extensions/XInput2.h>
 #include <algorithm>
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -37,6 +38,22 @@ static void printUsage(const char *argv0, std::ostream &os) {
 
 // Returns 0 to continue, 1 on error (usage printed), 2 if --help printed.
 static int parseArgs(int argc, char **argv, Options &opts) {
+  auto parseNonNegative = [](const char *name, const char *value,
+                             int &out) -> bool {
+    if (!value || *value == '\0') {
+      std::cerr << name << " requires a value\n";
+      return false;
+    }
+    const std::string_view sv(value);
+    int result = 0;
+    const auto [ptr, ec] = std::from_chars(sv.data(), sv.data() + sv.size(), result);
+    if (ec != std::errc() || ptr != sv.data() + sv.size()) {
+      std::cerr << "Invalid " << name << " value: " << value << "\n";
+      return false;
+    }
+    out = result;
+    return true;
+  };
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
     if (arg == "--help") {
@@ -45,9 +62,10 @@ static int parseArgs(int argc, char **argv, Options &opts) {
     } else if (arg == "--poll") {
       opts.pollIntervalMs = 10;
       if (i + 1 < argc && argv[i + 1][0] != '-') {
-        opts.pollIntervalMs = std::atoi(argv[++i]);
-        if (opts.pollIntervalMs <= 0) {
-          std::cerr << "Invalid --poll interval: " << argv[i] << "\n";
+        if (!parseNonNegative("--poll", argv[++i], opts.pollIntervalMs) ||
+            opts.pollIntervalMs <= 0) {
+          if (opts.pollIntervalMs == 0)
+            std::cerr << "Invalid --poll interval: must be > 0\n";
           printUsage(argv[0], std::cerr);
           return 1;
         }
@@ -55,38 +73,24 @@ static int parseArgs(int argc, char **argv, Options &opts) {
     } else if (arg == "--no-selection") {
       opts.showSelection = false;
     } else if (arg == "--fade-ms") {
-      if (i + 1 >= argc) {
-        std::cerr << "--fade-ms requires a value\n";
-        printUsage(argv[0], std::cerr);
-        return 1;
-      }
-      opts.fadeMs = std::atoi(argv[++i]);
-      if (opts.fadeMs < 0) {
-        std::cerr << "Invalid --fade-ms value: " << argv[i] << "\n";
+      if (!parseNonNegative("--fade-ms", (i + 1 < argc) ? argv[++i] : nullptr,
+                            opts.fadeMs)) {
         printUsage(argv[0], std::cerr);
         return 1;
       }
     } else if (arg == "--fade-duration") {
-      if (i + 1 >= argc) {
-        std::cerr << "--fade-duration requires a value\n";
-        printUsage(argv[0], std::cerr);
-        return 1;
-      }
-      opts.fadeDurationMs = std::atoi(argv[++i]);
-      if (opts.fadeDurationMs < 0) {
-        std::cerr << "Invalid --fade-duration value: " << argv[i] << "\n";
+      if (!parseNonNegative("--fade-duration",
+                            (i + 1 < argc) ? argv[++i] : nullptr,
+                            opts.fadeDurationMs)) {
         printUsage(argv[0], std::cerr);
         return 1;
       }
     } else if (arg == "--thickness") {
-      if (i + 1 >= argc) {
-        std::cerr << "--thickness requires a value\n";
-        printUsage(argv[0], std::cerr);
-        return 1;
-      }
-      opts.thickness = std::atoi(argv[++i]);
-      if (opts.thickness <= 0 || opts.thickness > 200) {
-        std::cerr << "Invalid --thickness value: " << argv[i] << "\n";
+      if (!parseNonNegative("--thickness", (i + 1 < argc) ? argv[++i] : nullptr,
+                            opts.thickness) ||
+          opts.thickness <= 0 || opts.thickness > 200) {
+        if (opts.thickness <= 0 || opts.thickness > 200)
+          std::cerr << "Invalid --thickness value: must be 1..200\n";
         printUsage(argv[0], std::cerr);
         return 1;
       }
