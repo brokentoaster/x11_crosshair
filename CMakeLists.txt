@@ -38,6 +38,14 @@ target_link_libraries(x11_crosshair PRIVATE
 # Add some useful compiler flags
 target_compile_options(x11_crosshair PRIVATE -Wall -Wextra -Wpedantic)
 
+option(BUILD_TESTS "Build unit tests for the X-free logic" ON)
+if(BUILD_TESTS)
+  enable_testing()
+  add_executable(x11_crosshair_tests tests/test_logic.cpp)
+  target_compile_options(x11_crosshair_tests PRIVATE -Wall -Wextra -Wpedantic)
+  add_test(NAME logic COMMAND x11_crosshair_tests)
+endif()
+
 # Aggressive GCC-only optimizations for Release builds
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(x11_crosshair PRIVATE
