@@ -260,28 +260,30 @@ public:
     XMapRaised(display, window);
     XFlush(display);
 
-    XSelectInput(display, root, PointerMotionMask);
+    if (options.pollIntervalMs <= 0) {
+      XSelectInput(display, root, PointerMotionMask);
 
-    // XI2 Raw Motion (keeps tracking even when apps grab the pointer)
-    int xi_opcode = 0;
-    int xi_event = 0;
-    int xi_error = 0;
-    xi2_enabled = false;
-    if (XQueryExtension(display, "XInputExtension", &xi_opcode, &xi_event, &xi_error)) {
-        int major = 2;
-        int minor = 0;
-        if (XIQueryVersion(display, &major, &minor) == Success) {
-            unsigned char mask_data[XIMaskLen(XI_RawMotion)];
-            std::memset(mask_data, 0, sizeof(mask_data));
-            XISetMask(mask_data, XI_RawMotion);
-            XIEventMask mask{};
-            mask.deviceid = XIAllMasterDevices;
-            mask.mask_len = sizeof(mask_data);
-            mask.mask = mask_data;
-            XISelectEvents(display, root, &mask, 1);
-            xi2_enabled = true;
-            this->xi_opcode = xi_opcode;
-        }
+      // XI2 Raw Motion (keeps tracking even when apps grab the pointer)
+      int xi_opcode = 0;
+      int xi_event = 0;
+      int xi_error = 0;
+      xi2_enabled = false;
+      if (XQueryExtension(display, "XInputExtension", &xi_opcode, &xi_event, &xi_error)) {
+          int major = 2;
+          int minor = 0;
+          if (XIQueryVersion(display, &major, &minor) == Success) {
+              unsigned char mask_data[XIMaskLen(XI_RawMotion)];
+              std::memset(mask_data, 0, sizeof(mask_data));
+              XISetMask(mask_data, XI_RawMotion);
+              XIEventMask mask{};
+              mask.deviceid = XIAllMasterDevices;
+              mask.mask_len = sizeof(mask_data);
+              mask.mask = mask_data;
+              XISelectEvents(display, root, &mask, 1);
+              xi2_enabled = true;
+              this->xi_opcode = xi_opcode;
+          }
+      }
     }
 
     // GCs
@@ -338,7 +340,13 @@ public:
       Window child_return, root_return;
 
       pollfd pfd{ConnectionNumber(display), POLLIN, 0};
-      poll(&pfd, 1, static_cast<int>(min_interval.count()));
+      if (options.pollIntervalMs > 0) {
+        // Polling mode: sleep the requested interval, then read the pointer.
+        poll(&pfd, 1, options.pollIntervalMs);
+      } else {
+        // Event mode: wake up on XI2 raw motion (bounded by min_interval).
+        poll(&pfd, 1, static_cast<int>(min_interval.count()));
+      }
 
       XEvent ev;
       while (XPending(display)) {
