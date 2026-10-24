@@ -17,6 +17,7 @@ struct Options {
   bool showSelection = true;
   int thickness = 3;
   int fadeMs = 0; // 0 = never hide on idle
+  int fadeDurationMs = 0; // 0 = hide abruptly; needs --fade-ms > 0
 };
 
 static void printUsage(const char *argv0, std::ostream &os) {
@@ -28,6 +29,8 @@ static void printUsage(const char *argv0, std::ostream &os) {
      << "  --thickness N     Crosshair line thickness in px (default 3)\n"
      << "  --fade-ms N       Hide overlay after N ms of no pointer motion"
      << " (0 = never hide, default)\n"
+     << "  --fade-duration MS  Soft fade-out duration after the idle timeout"
+     << " (needs --fade-ms; 0 = abrupt, default)\n"
      << "  --help            Show this help\n"
      << "Defaults reproduce the plain `x11_crosshair` behaviour.\n";
 }
@@ -60,6 +63,18 @@ static int parseArgs(int argc, char **argv, Options &opts) {
       opts.fadeMs = std::atoi(argv[++i]);
       if (opts.fadeMs < 0) {
         std::cerr << "Invalid --fade-ms value: " << argv[i] << "\n";
+        printUsage(argv[0], std::cerr);
+        return 1;
+      }
+    } else if (arg == "--fade-duration") {
+      if (i + 1 >= argc) {
+        std::cerr << "--fade-duration requires a value\n";
+        printUsage(argv[0], std::cerr);
+        return 1;
+      }
+      opts.fadeDurationMs = std::atoi(argv[++i]);
+      if (opts.fadeDurationMs < 0) {
+        std::cerr << "Invalid --fade-duration value: " << argv[i] << "\n";
         printUsage(argv[0], std::cerr);
         return 1;
       }
@@ -344,6 +359,7 @@ public:
     std::vector<std::string> last_lines;
     auto last_motion = std::chrono::steady_clock::now();
     bool hidden = false;
+    bool fading = false;
 
     // Text box settings
     const int text_margin_x = 15;
@@ -402,26 +418,43 @@ public:
 
       if (options.fadeMs > 0 && (now - last_motion) >=
                                     std::chrono::milliseconds(options.fadeMs)) {
-        if (!hidden) {
-          // Idle: hide by clearing the bounding region; keep the window
-          // mapped and the click-through input region untouched.
-          XserverRegion emptyRegion = XFixesCreateRegion(display, nullptr, 0);
-          XFixesSetWindowShapeRegion(display, window, ShapeBounding, 0, 0,
-                                     emptyRegion);
-          XFixesDestroyRegion(display, emptyRegion);
-          XFlush(display);
-          hidden = true;
+        const auto idleMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                now - last_motion)
+                                .count() -
+                            options.fadeMs;
+        if (options.fadeDurationMs > 0 &&
+            idleMs < options.fadeDurationMs) {
+          // Soft fade: keep rendering with the crosshair alpha ramping down.
+          const int alpha = 255 - static_cast<int>(
+              255.0 * idleMs / options.fadeDurationMs);
+          const unsigned long white = (static_cast<unsigned long>(alpha) << 24) | 0xFFFFFF;
+          const unsigned long black = static_cast<unsigned long>(alpha) << 24;
+          XSetForeground(display, gc_white, white);
+          XSetForeground(display, gc_black, black);
+          XSetForeground(display, gc_stipple, black);
+          fading = true;
+        } else {
+          if (!hidden) {
+            // Idle: hide by clearing the bounding region; keep the window
+            // mapped and the click-through input region untouched.
+            XserverRegion emptyRegion = XFixesCreateRegion(display, nullptr, 0);
+            XFixesSetWindowShapeRegion(display, window, ShapeBounding, 0, 0,
+                                       emptyRegion);
+            XFixesDestroyRegion(display, emptyRegion);
+            XFlush(display);
+            hidden = true;
+          }
+          // Skip all drawing work while idle; any pointer motion (XI2 event or
+          // polled movement) wakes the loop and re-shows via the render path.
+          continue;
         }
-        // Skip all drawing work while idle; any pointer motion (XI2 event or
-        // polled movement) wakes the loop and re-shows via the render path.
-        continue;
-      }
-      if (hidden) {
-        // Not idle long enough yet but was hidden: fall through and re-render.
+      } else if (hidden || fading) {
         hidden = false;
+        fading = false;
       }
 
-      if (!position_changed && !text_changed && (now - last_render) < min_interval) {
+      if (!position_changed && !text_changed && !fading &&
+          (now - last_render) < min_interval) {
         continue;
       }
 
@@ -488,7 +521,14 @@ public:
 
       // 4. Drawing
       XClearWindow(display, window);
-      
+
+      if (!fading) {
+        // Full-opacity colors; a previous fade may have left dimmed GCs.
+        XSetForeground(display, gc_white, WhitePixel(display, screen));
+        XSetForeground(display, gc_black, BlackPixel(display, screen));
+        XSetForeground(display, gc_stipple, BlackPixel(display, screen));
+      }
+
       // Draw white thick crosshair
       XFillRectangles(display, window, gc_white, rects, 2); 
       
