@@ -263,6 +263,33 @@ private:
 
 // --- Main Crosshair Class ---
 
+// Pure idle/fade state machine; inputs in ms since epoch-like clock so it
+// is testable without X.
+struct IdleState {
+  bool hideNow = false;
+  bool fading = false;
+  int alpha = 255;
+};
+
+static IdleState evaluateIdle(int fadeMs, int fadeDurationMs,
+                              long idleMsSinceMotion) {
+  IdleState state;
+  if (fadeMs <= 0 || idleMsSinceMotion < fadeMs) {
+    return state;
+  }
+  const long idleMs = idleMsSinceMotion - fadeMs;
+  if (fadeDurationMs > 0 && idleMs < fadeDurationMs) {
+    state.fading = true;
+    state.alpha = 255 - static_cast<int>(255.0 * idleMs / fadeDurationMs);
+    if (state.alpha < 0) {
+      state.alpha = 0;
+    }
+  } else {
+    state.hideNow = true;
+  }
+  return state;
+}
+
 class CrosshairOverlay {
 public:
   explicit CrosshairOverlay(const Options &opts) : options(opts) {
@@ -390,27 +417,9 @@ public:
       unsigned int mask = 0;
       Window child_return, root_return;
 
-      pollfd pfd{ConnectionNumber(display), POLLIN, 0};
-      if (options.pollIntervalMs > 0) {
-        // Polling mode: sleep the requested interval, then read the pointer.
-        poll(&pfd, 1, options.pollIntervalMs);
-      } else {
-        // Event mode: wake up on XI2 raw motion (bounded by min_interval).
-        poll(&pfd, 1, static_cast<int>(min_interval.count()));
+      if (!waitForWakeup(min_interval)) {
+        continue;
       }
-
-      XEvent ev;
-      while (XPending(display)) {
-        XNextEvent(display, &ev);
-        if (xi2_enabled && ev.type == GenericEvent &&
-            ev.xcookie.extension == xi_opcode && XGetEventData(display, &ev.xcookie)) {
-          if (ev.xcookie.evtype == XI_RawMotion) {
-            // We'll query absolute position below.
-          }
-          XFreeEventData(display, &ev.xcookie);
-        }
-      }
-
       if (!XQueryPointer(display, root, &root_return, &child_return, &root_x,
                          &root_y, &win_x, &win_y, &mask)) {
         continue;
@@ -434,39 +443,28 @@ public:
         hidden = false;
       }
 
-      if (options.fadeMs > 0 && (now - last_motion) >=
-                                    std::chrono::milliseconds(options.fadeMs)) {
-        const auto idleMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                now - last_motion)
-                                .count() -
-                            options.fadeMs;
-        if (options.fadeDurationMs > 0 &&
-            idleMs < options.fadeDurationMs) {
-          // Soft fade: keep rendering with the crosshair alpha ramping down.
-          const int alpha = 255 - static_cast<int>(
-              255.0 * idleMs / options.fadeDurationMs);
-          XSetForeground(display, gc_white, argbPixel(0xFFFFFF, alpha));
-          XSetForeground(display, gc_black, argbPixel(0x000000, alpha));
-          XSetForeground(display, gc_stipple, argbPixel(0x000000, alpha));
-          fading = true;
-        } else {
-          if (!hidden) {
-            // Idle: hide by clearing the bounding region; keep the window
-            // mapped and the click-through input region untouched.
-            XserverRegion emptyRegion = XFixesCreateRegion(display, nullptr, 0);
-            XFixesSetWindowShapeRegion(display, window, ShapeBounding, 0, 0,
-                                       emptyRegion);
-            XFixesDestroyRegion(display, emptyRegion);
-            XFlush(display);
-            hidden = true;
-          }
-          // Skip all drawing work while idle; any pointer motion (XI2 event or
-          // polled movement) wakes the loop and re-shows via the render path.
-          continue;
+      const auto idleMsSinceMotion =
+          std::chrono::duration_cast<std::chrono::milliseconds>(now - last_motion)
+              .count();
+      const IdleState idle =
+          evaluateIdle(options.fadeMs, options.fadeDurationMs, idleMsSinceMotion);
+      if (idle.hideNow) {
+        if (!hidden) {
+          // Idle: hide by clearing the bounding region; keep the window
+          // mapped and the click-through input region untouched. Any pointer
+          // motion wakes the loop and re-shows via the render path.
+          applyEmptyBoundingShape();
+          hidden = true;
         }
-      } else if (hidden || fading) {
-        hidden = false;
         fading = false;
+        continue;
+      }
+      hidden = false;
+      fading = idle.fading;
+      if (idle.fading) {
+        XSetForeground(display, gc_white, argbPixel(0xFFFFFF, idle.alpha));
+        XSetForeground(display, gc_black, argbPixel(0x000000, idle.alpha));
+        XSetForeground(display, gc_stipple, argbPixel(0x000000, idle.alpha));
       }
 
       if (!position_changed && !text_changed && !fading &&
@@ -480,32 +478,14 @@ public:
       last_render = now;
 
       // 2. Calculate text box geometry
-      int box_w = 0;
-      int box_h = 0;
-      
-      if (!lines.empty()) {
-          box_h = lines.size() * line_height + (2 * padding);
-          for (const auto& line : lines) {
-              int w = 0;
-              if (font_struct) w = XTextWidth(font_struct, line.c_str(), line.length());
-              else w = line.length() * 6; // fallback estimate
-              if (w > box_w) box_w = w;
-          }
-          box_w += (2 * padding);
-      }
-
-      int box_x = root_x + text_margin_x;
-      int box_y = root_y + text_margin_y;
-
-      // Ensure text box stays on screen
-      int scr_w = DisplayWidth(display, screen);
-      int scr_h = DisplayHeight(display, screen);
-      if (box_x + box_w > scr_w) box_x = root_x - box_w - text_margin_x;
-      if (box_y + box_h > scr_h) box_y = root_y - box_h - text_margin_y;
-
+      const TextBox box =
+          computeTextBox(lines, root_x, root_y, text_margin_x, text_margin_y,
+                         line_height, padding);
 
       // 3. Define Shape Regions
       // We need max 3 rectangles: Horizontal line, Vertical line, Text Box
+      int scr_w = DisplayWidth(display, screen);
+      int scr_h = DisplayHeight(display, screen);
       XRectangle rects[3];
       int rect_count = 2;
 
@@ -523,51 +503,126 @@ public:
 
       // Text Box (if needed)
       if (!lines.empty()) {
-          rects[2].x = box_x;
-          rects[2].y = box_y;
-          rects[2].width = box_w;
-          rects[2].height = box_h;
+          rects[2].x = box.x;
+          rects[2].y = box.y;
+          rects[2].width = box.w;
+          rects[2].height = box.h;
           rect_count = 3;
       }
 
-      // Apply Shape
-      XserverRegion bounding = XFixesCreateRegion(display, rects, rect_count);
-      XFixesSetWindowShapeRegion(display, window, ShapeBounding, 0, 0, bounding);
-      XFixesDestroyRegion(display, bounding);
-
-      // 4. Drawing
-      XClearWindow(display, window);
-
-      if (!fading) {
-        // Full-opacity colors; a previous fade may have left dimmed GCs.
-        XSetForeground(display, gc_white, fullOpacityWhite());
-        XSetForeground(display, gc_black, fullOpacityBlack());
-        XSetForeground(display, gc_stipple, fullOpacityBlack());
-      }
-
-      // Draw white thick crosshair
-      XFillRectangles(display, window, gc_white, rects, 2); 
-      
-      // Draw stippled black lines
-      XDrawLine(display, window, gc_stipple, 0, root_y, scr_w - 1, root_y);
-      XDrawLine(display, window, gc_stipple, root_x, 0, root_x, scr_h - 1);
-
-      // Draw Text Box
-      if (!lines.empty()) {
-          // Black background for text
-          XFillRectangle(display, window, gc_black, box_x, box_y, box_w, box_h);
-          
-          // Draw text strings
-          int txt_y = box_y + padding + (font_struct ? font_struct->ascent : 10);
-          for (const auto& line : lines) {
-              XDrawString(display, window, gc_white, box_x + padding, txt_y, line.c_str(), line.length());
-              txt_y += line_height;
-          }
-      }
-
+      applyBoundingShape(rects, rect_count);
+      drawFrame(rects, lines, box, root_x, root_y, scr_w, scr_h, line_height,
+                padding, fading);
       XFlush(display);
       XRaiseWindow(display, window);
       XFlush(display);
+    }
+  }
+
+  bool waitForWakeup(std::chrono::milliseconds min_interval) {
+    pollfd pfd{ConnectionNumber(display), POLLIN, 0};
+    if (options.pollIntervalMs > 0) {
+      // Polling mode: sleep the requested interval, then read the pointer.
+      poll(&pfd, 1, options.pollIntervalMs);
+    } else {
+      // Event mode: wake up on XI2 raw motion (bounded by min_interval).
+      poll(&pfd, 1, static_cast<int>(min_interval.count()));
+    }
+    XEvent ev;
+    while (XPending(display)) {
+      XNextEvent(display, &ev);
+      if (xi2_enabled && ev.type == GenericEvent &&
+          ev.xcookie.extension == xi_opcode &&
+          XGetEventData(display, &ev.xcookie)) {
+        if (ev.xcookie.evtype == XI_RawMotion) {
+          // We'll query absolute position in the caller.
+        }
+        XFreeEventData(display, &ev.xcookie);
+      }
+    }
+    return true;
+  }
+
+  struct TextBox {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+  };
+
+  TextBox computeTextBox(const std::vector<std::string> &lines, int root_x,
+                         int root_y, int margin_x, int margin_y,
+                         int line_height, int padding) const {
+    TextBox box;
+    if (lines.empty()) {
+      return box;
+    }
+    box.h = static_cast<int>(lines.size()) * line_height + (2 * padding);
+    for (const auto &line : lines) {
+      int w = 0;
+      if (font_struct)
+        w = XTextWidth(font_struct, line.c_str(), line.length());
+      else
+        w = static_cast<int>(line.length()) * 6;
+      if (w > box.w)
+        box.w = w;
+    }
+    box.w += (2 * padding);
+    box.x = root_x + margin_x;
+    box.y = root_y + margin_y;
+    const int scr_w = DisplayWidth(display, screen);
+    const int scr_h = DisplayHeight(display, screen);
+    if (box.x + box.w > scr_w)
+      box.x = root_x - box.w - margin_x;
+    if (box.y + box.h > scr_h)
+      box.y = root_y - box.h - margin_y;
+    return box;
+  }
+
+  void applyEmptyBoundingShape() {
+    XserverRegion emptyRegion = XFixesCreateRegion(display, nullptr, 0);
+    XFixesSetWindowShapeRegion(display, window, ShapeBounding, 0, 0,
+                               emptyRegion);
+    XFixesDestroyRegion(display, emptyRegion);
+    XFlush(display);
+  }
+
+  void applyBoundingShape(XRectangle *rects, int rect_count) {
+    XserverRegion bounding = XFixesCreateRegion(display, rects, rect_count);
+    XFixesSetWindowShapeRegion(display, window, ShapeBounding, 0, 0, bounding);
+    XFixesDestroyRegion(display, bounding);
+  }
+
+  void drawFrame(XRectangle *rects, const std::vector<std::string> &lines,
+                 const TextBox &box, int root_x, int root_y, int scr_w,
+                 int scr_h, int line_height, int padding, bool fading) {
+    XClearWindow(display, window);
+    if (!fading) {
+      // Full-opacity colors; a previous fade may have left dimmed GCs.
+      XSetForeground(display, gc_white, fullOpacityWhite());
+      XSetForeground(display, gc_black, fullOpacityBlack());
+      XSetForeground(display, gc_stipple, fullOpacityBlack());
+    }
+
+    // Draw white thick crosshair
+    XFillRectangles(display, window, gc_white, rects, 2);
+
+    // Draw stippled black lines
+    XDrawLine(display, window, gc_stipple, 0, root_y, scr_w - 1, root_y);
+    XDrawLine(display, window, gc_stipple, root_x, 0, root_x, scr_h - 1);
+
+    // Draw Text Box
+    if (!lines.empty()) {
+      // Black background for text
+      XFillRectangle(display, window, gc_black, box.x, box.y, box.w, box.h);
+
+      // Draw text strings
+      int txt_y = box.y + padding + (font_struct ? font_struct->ascent : 10);
+      for (const auto &line : lines) {
+        XDrawString(display, window, gc_white, box.x + padding, txt_y,
+                    line.c_str(), line.length());
+        txt_y += line_height;
+      }
     }
   }
 
