@@ -17,16 +17,17 @@ Requires `libx11-dev`, `libxfixes-dev`, `libxi-dev`, `pkg-config`, CMake ≥ 3.1
 
 ## Runtime options
 
-A single `main.cpp` implements all modes, selected by command-line flags (see README.md for the user-facing table): `--poll [MS]` switches to XQueryPointer polling (default 10 ms interval, skips all XI2 setup), `--no-selection` disables the text box and skips starting `SelectionMonitor`, `--thickness N` sets the crosshair line width (default 3). No-argument defaults reproduce the original behavior exactly.
+A single `main.cpp` implements all modes, selected by command-line flags (see README.md for the user-facing table): `--poll [MS]` switches to XQueryPointer polling (default 10 ms interval, skips all XI2 setup), `--no-selection` disables the text box and skips starting `SelectionMonitor`, `--thickness N` sets the crosshair line width (default 3), `--fade-ms N` hides the overlay after N ms without pointer motion (0 = off), and `--fade-duration MS` soft-fades out after that timeout. No-argument defaults reproduce the original behavior exactly.
 
 ## Event loop and selection architecture
 
-- Click-through is achieved with `XFixesSetWindowShapeRegion` on `ShapeInput` set to an empty region; visibility (only the crosshair pixels) via `ShapeBounding`. Both must be set for correct behavior.
+- Click-through is achieved with `XFixesSetWindowShapeRegion` on `ShapeInput` set to an empty region; visibility (only the crosshair pixels) via `ShapeBounding`. Both must be set for correct behavior. Idle hiding (`--fade-ms`) also hides by clearing `ShapeBounding` — never unmap the window to hide it.
 - The overlay window is `override_redirect` (no WM decorations) and is re-raised each frame; a 32-bit TrueColor visual + matching colormap is requested when available.
 - Selection fetching can block (other clients own selections); it must stay in the `SelectionMonitor` background thread with a poll-based 100 ms timeout per fetch (UTF8_STRING first, XA_STRING fallback), re-polling both PRIMARY and CLIPBOARD roughly every 200 ms via its own display connection — never move it onto the render/event thread.
 - Sanitization conventions for displayed selection text: newlines → spaces, truncate at 50 chars with `...`.
 - Event-driven motion: the main target selects `XI_RawMotion` on the root window via XInput2 (`XISelectEvents`), received through `XNextEvent` + cookie retrieval. Keep this design (it exists to reduce CPU vs polling).
 - Xlib calls are buffered; `XFlush` after map/raise/draw is required for responsiveness.
+- Idle hiding: the run loop tracks last pointer motion; once idle past `--fade-ms` it clears `ShapeBounding` and skips drawing until the next motion. `--fade-duration` ramps the drawing GC foreground alpha (ARGB, `alpha << 24 | rgb`) down over the duration before hiding; visible only with the 32-bit visual + compositor, elsewhere the abrupt hide remains.
 
 ## Style
 

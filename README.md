@@ -48,12 +48,14 @@ Run it in background if desired:
 To stop it, kill the process (e.g. `pkill x11_crosshair`).
 
 ## Options
-| Option           | Effect                                                                                                         |
-|------------------|----------------------------------------------------------------------------------------------------------------|
-| `--poll [MS]`    | Track the pointer by polling XQueryPointer every MS ms (default 10) instead of using XInput2 raw-motion events |
-| `--no-selection` | Do not display the current PRIMARY/CLIPBOARD text                                                              |
-| `--thickness N`  | Crosshair line thickness in px (default 3)                                                                     |
-| `--help`         | Show options and defaults                                                                                      |
+| Option               | Effect                                                                                                                                                               |
+|----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `--poll [MS]`        | Track the pointer by polling XQueryPointer every MS ms (default 10) instead of using XInput2 raw-motion events                                                       |
+| `--no-selection`     | Do not display the current PRIMARY/CLIPBOARD text                                                                                                                    |
+| `--thickness N`      | Crosshair line thickness in px (default 3)                                                                                                                           |
+| `--fade-ms N`        | Hide the overlay after N ms without pointer motion (0 = never hide, default)                                                                                         |
+| `--fade-duration MS` | Soft fade-out over MS ms after the idle timeout; needs `--fade-ms`; 0 = abrupt hide (default). Requires the 32-bit visual and a compositor, otherwise hides abruptly |
+| `--help`             | Show options and defaults                                                                                                                                            |
 
 With no arguments the overlay uses XInput2 events, shows the selection text, and draws a 3 px crosshair.
 
