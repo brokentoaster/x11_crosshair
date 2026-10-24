@@ -1,23 +1,23 @@
 // main.cpp
+#include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
-#include <X11/Xatom.h>
+#include <X11/extensions/XInput2.h>
 #include <X11/extensions/Xfixes.h>
 #include <X11/extensions/shape.h>
-#include <X11/extensions/XInput2.h>
 #include <algorithm>
 #include <atomic>
 #include <charconv>
 #include <chrono>
 #include <cstring>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <poll.h>
 #include <stdexcept>
-#include <thread>
-#include <mutex>
-#include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "selection_monitor.hpp"
@@ -26,7 +26,7 @@ struct Options {
   int pollIntervalMs = 0; // 0 = event-driven (XInput2)
   bool showSelection = true;
   int thickness = 3;
-  int fadeMs = 0; // 0 = never hide on idle
+  int fadeMs = 0;         // 0 = never hide on idle
   int fadeDurationMs = 0; // 0 = hide abruptly; needs --fade-ms > 0
 };
 
@@ -47,8 +47,7 @@ static void printUsage(const char *argv0, std::ostream &os) {
 
 // Returns 0 to continue, 1 on error (usage printed), 2 if --help printed.
 static int parseArgs(int argc, char **argv, Options &opts) {
-  auto parseNonNegative = [](const char *name, const char *value,
-                             int &out) -> bool {
+  auto parseNonNegative = [](const char *name, const char *value, int &out) -> bool {
     if (!value || *value == '\0') {
       std::cerr << name << " requires a value\n";
       return false;
@@ -82,21 +81,18 @@ static int parseArgs(int argc, char **argv, Options &opts) {
     } else if (arg == "--no-selection") {
       opts.showSelection = false;
     } else if (arg == "--fade-ms") {
-      if (!parseNonNegative("--fade-ms", (i + 1 < argc) ? argv[++i] : nullptr,
-                            opts.fadeMs)) {
+      if (!parseNonNegative("--fade-ms", (i + 1 < argc) ? argv[++i] : nullptr, opts.fadeMs)) {
         printUsage(argv[0], std::cerr);
         return 1;
       }
     } else if (arg == "--fade-duration") {
-      if (!parseNonNegative("--fade-duration",
-                            (i + 1 < argc) ? argv[++i] : nullptr,
+      if (!parseNonNegative("--fade-duration", (i + 1 < argc) ? argv[++i] : nullptr,
                             opts.fadeDurationMs)) {
         printUsage(argv[0], std::cerr);
         return 1;
       }
     } else if (arg == "--thickness") {
-      if (!parseNonNegative("--thickness", (i + 1 < argc) ? argv[++i] : nullptr,
-                            opts.thickness) ||
+      if (!parseNonNegative("--thickness", (i + 1 < argc) ? argv[++i] : nullptr, opts.thickness) ||
           opts.thickness <= 0 || opts.thickness > 200) {
         if (opts.thickness <= 0 || opts.thickness > 200)
           std::cerr << "Invalid --thickness value: must be 1..200\n";
@@ -121,8 +117,7 @@ struct IdleState {
   int alpha = 255;
 };
 
-static IdleState evaluateIdle(int fadeMs, int fadeDurationMs,
-                              long idleMsSinceMotion) {
+static IdleState evaluateIdle(int fadeMs, int fadeDurationMs, long idleMsSinceMotion) {
   IdleState state;
   if (fadeMs <= 0 || idleMsSinceMotion < fadeMs) {
     return state;
@@ -141,7 +136,7 @@ static IdleState evaluateIdle(int fadeMs, int fadeDurationMs,
 }
 
 class CrosshairOverlay {
-public:
+ public:
   explicit CrosshairOverlay(const Options &opts) : options(opts) {
     display = XOpenDisplay(nullptr);
     if (!display)
@@ -165,14 +160,14 @@ public:
     colormap = XCreateColormap(display, root, visual, AllocNone);
     attrs.colormap = colormap;
     attrs.border_pixel = 0;
-    attrs.background_pixmap = None; 
-    attrs.override_redirect = True; 
+    attrs.background_pixmap = None;
+    attrs.override_redirect = True;
 
     unsigned long attr_mask = CWColormap | CWBorderPixel | CWBackPixmap | CWOverrideRedirect;
 
     window = XCreateWindow(display, root, 0, 0, DisplayWidth(display, screen),
-                           DisplayHeight(display, screen), 0, depth,
-                           InputOutput, visual, attr_mask, &attrs);
+                           DisplayHeight(display, screen), 0, depth, InputOutput, visual, attr_mask,
+                           &attrs);
     if (!window)
       throw std::runtime_error("Failed to create window");
 
@@ -193,20 +188,20 @@ public:
       int xi_error = 0;
       xi2_enabled = false;
       if (XQueryExtension(display, "XInputExtension", &xi_opcode, &xi_event, &xi_error)) {
-          int major = 2;
-          int minor = 0;
-          if (XIQueryVersion(display, &major, &minor) == Success) {
-              unsigned char mask_data[XIMaskLen(XI_RawMotion)];
-              std::memset(mask_data, 0, sizeof(mask_data));
-              XISetMask(mask_data, XI_RawMotion);
-              XIEventMask mask{};
-              mask.deviceid = XIAllMasterDevices;
-              mask.mask_len = sizeof(mask_data);
-              mask.mask = mask_data;
-              XISelectEvents(display, root, &mask, 1);
-              xi2_enabled = true;
-              this->xi_opcode = xi_opcode;
-          }
+        int major = 2;
+        int minor = 0;
+        if (XIQueryVersion(display, &major, &minor) == Success) {
+          unsigned char mask_data[XIMaskLen(XI_RawMotion)];
+          std::memset(mask_data, 0, sizeof(mask_data));
+          XISetMask(mask_data, XI_RawMotion);
+          XIEventMask mask{};
+          mask.deviceid = XIAllMasterDevices;
+          mask.mask_len = sizeof(mask_data);
+          mask.mask = mask_data;
+          XISelectEvents(display, root, &mask, 1);
+          xi2_enabled = true;
+          this->xi_opcode = xi_opcode;
+        }
       }
     }
 
@@ -216,33 +211,41 @@ public:
 
     gc_black = XCreateGC(display, window, 0, nullptr);
     XSetForeground(display, gc_black, fullOpacityBlack());
-    
+
     // Stippled line GC
     gc_stipple = XCreateGC(display, window, 0, nullptr);
     XSetForeground(display, gc_stipple, fullOpacityBlack());
     XSetLineAttributes(display, gc_stipple, 1, LineOnOffDash, CapButt, JoinMiter);
-    const char dashes[] = {1, 1}; 
+    const char dashes[] = {1, 1};
     XSetDashes(display, gc_stipple, 0, dashes, sizeof(dashes));
 
     // Font
     font_struct = XLoadQueryFont(display, "fixed"); // Keep it simple/standard
-    if (!font_struct) font_struct = XLoadQueryFont(display, "9x15");
-    // If fixed/9x15 fails, XLoadQueryFont returns NULL, XSetFont handles None gracefully usually 
+    if (!font_struct)
+      font_struct = XLoadQueryFont(display, "9x15");
+    // If fixed/9x15 fails, XLoadQueryFont returns NULL, XSetFont handles None gracefully usually
     // but better to check. We will rely on default GC font if this fails.
     if (font_struct) {
-        XSetFont(display, gc_white, font_struct->fid);
-        XSetFont(display, gc_black, font_struct->fid);
+      XSetFont(display, gc_white, font_struct->fid);
+      XSetFont(display, gc_black, font_struct->fid);
     }
   }
 
   ~CrosshairOverlay() {
-    if (font_struct) XFreeFont(display, font_struct);
-    if (gc_white) XFreeGC(display, gc_white);
-    if (gc_black) XFreeGC(display, gc_black);
-    if (gc_stipple) XFreeGC(display, gc_stipple);
-    if (window) XDestroyWindow(display, window);
-    if (colormap) XFreeColormap(display, colormap);
-    if (display) XCloseDisplay(display);
+    if (font_struct)
+      XFreeFont(display, font_struct);
+    if (gc_white)
+      XFreeGC(display, gc_white);
+    if (gc_black)
+      XFreeGC(display, gc_black);
+    if (gc_stipple)
+      XFreeGC(display, gc_stipple);
+    if (window)
+      XDestroyWindow(display, window);
+    if (colormap)
+      XFreeColormap(display, colormap);
+    if (display)
+      XCloseDisplay(display);
   }
 
   void run(SelectionMonitor *selectionMonitor) {
@@ -270,8 +273,8 @@ public:
       if (!waitForWakeup(last_motion)) {
         continue;
       }
-      if (!XQueryPointer(display, root, &root_return, &child_return, &root_x,
-                         &root_y, &win_x, &win_y, &mask)) {
+      if (!XQueryPointer(display, root, &root_return, &child_return, &root_x, &root_y, &win_x,
+                         &win_y, &mask)) {
         continue;
       }
 
@@ -280,8 +283,10 @@ public:
       if (selectionMonitor) {
         std::string prim, clip;
         selectionMonitor->getSelections(prim, clip);
-        if (!prim.empty()) lines.push_back("P: " + prim);
-        if (!clip.empty()) lines.push_back("C: " + clip);
+        if (!prim.empty())
+          lines.push_back("P: " + prim);
+        if (!clip.empty())
+          lines.push_back("C: " + clip);
       }
 
       const bool position_changed = (root_x != last_x || root_y != last_y);
@@ -294,8 +299,7 @@ public:
       }
 
       const auto idleMsSinceMotion =
-          std::chrono::duration_cast<std::chrono::milliseconds>(now - last_motion)
-              .count();
+          std::chrono::duration_cast<std::chrono::milliseconds>(now - last_motion).count();
       const IdleState idle =
           evaluateIdle(options.fadeMs, options.fadeDurationMs, idleMsSinceMotion);
       if (idle.hideNow) {
@@ -317,8 +321,7 @@ public:
         XSetForeground(display, gc_stipple, argbPixel(0x000000, idle.alpha));
       }
 
-      if (!position_changed && !text_changed && !fading &&
-          (now - last_render) < min_interval) {
+      if (!position_changed && !text_changed && !fading && (now - last_render) < min_interval) {
         continue;
       }
 
@@ -329,8 +332,7 @@ public:
 
       // 2. Calculate text box geometry
       const TextBox box =
-          computeTextBox(lines, root_x, root_y, text_margin_x, text_margin_y,
-                         line_height, padding);
+          computeTextBox(lines, root_x, root_y, text_margin_x, text_margin_y, line_height, padding);
 
       // 3. Define Shape Regions
       // We need max 3 rectangles: Horizontal line, Vertical line, Text Box
@@ -353,16 +355,15 @@ public:
 
       // Text Box (if needed)
       if (!lines.empty()) {
-          rects[2].x = box.x;
-          rects[2].y = box.y;
-          rects[2].width = box.w;
-          rects[2].height = box.h;
-          rect_count = 3;
+        rects[2].x = box.x;
+        rects[2].y = box.y;
+        rects[2].width = box.w;
+        rects[2].height = box.h;
+        rect_count = 3;
       }
 
       applyBoundingShape(rects, rect_count);
-      drawFrame(rects, lines, box, root_x, root_y, scr_w, scr_h, line_height,
-                padding, fading);
+      drawFrame(rects, lines, box, root_x, root_y, scr_w, scr_h, line_height, padding, fading);
       XFlush(display);
       XRaiseWindow(display, window);
       XFlush(display);
@@ -380,8 +381,7 @@ public:
       // overlay hides (or finishes fading) even without motion events.
       const auto now = std::chrono::steady_clock::now();
       const auto elapsed =
-          std::chrono::duration_cast<std::chrono::milliseconds>(now - last_motion)
-              .count();
+          std::chrono::duration_cast<std::chrono::milliseconds>(now - last_motion).count();
       const long remaining = options.fadeMs - elapsed;
       timeoutMs = static_cast<int>(remaining > 0 ? remaining : 0);
     } else {
@@ -393,8 +393,7 @@ public:
     XEvent ev;
     while (XPending(display)) {
       XNextEvent(display, &ev);
-      if (xi2_enabled && ev.type == GenericEvent &&
-          ev.xcookie.extension == xi_opcode &&
+      if (xi2_enabled && ev.type == GenericEvent && ev.xcookie.extension == xi_opcode &&
           XGetEventData(display, &ev.xcookie)) {
         if (ev.xcookie.evtype == XI_RawMotion) {
           // We'll query absolute position in the caller.
@@ -412,9 +411,8 @@ public:
     int h = 0;
   };
 
-  TextBox computeTextBox(const std::vector<std::string> &lines, int root_x,
-                         int root_y, int margin_x, int margin_y,
-                         int line_height, int padding) const {
+  TextBox computeTextBox(const std::vector<std::string> &lines, int root_x, int root_y,
+                         int margin_x, int margin_y, int line_height, int padding) const {
     TextBox box;
     if (lines.empty()) {
       return box;
@@ -443,8 +441,7 @@ public:
 
   void applyEmptyBoundingShape() {
     XserverRegion emptyRegion = XFixesCreateRegion(display, nullptr, 0);
-    XFixesSetWindowShapeRegion(display, window, ShapeBounding, 0, 0,
-                               emptyRegion);
+    XFixesSetWindowShapeRegion(display, window, ShapeBounding, 0, 0, emptyRegion);
     XFixesDestroyRegion(display, emptyRegion);
     XFlush(display);
   }
@@ -455,9 +452,9 @@ public:
     XFixesDestroyRegion(display, bounding);
   }
 
-  void drawFrame(XRectangle *rects, const std::vector<std::string> &lines,
-                 const TextBox &box, int root_x, int root_y, int scr_w,
-                 int scr_h, int line_height, int padding, bool fading) {
+  void drawFrame(XRectangle *rects, const std::vector<std::string> &lines, const TextBox &box,
+                 int root_x, int root_y, int scr_w, int scr_h, int line_height, int padding,
+                 bool fading) {
     XClearWindow(display, window);
     if (!fading) {
       // Full-opacity colors; a previous fade may have left dimmed GCs.
@@ -481,8 +478,7 @@ public:
       // Draw text strings
       int txt_y = box.y + padding + (font_struct ? font_struct->ascent : 10);
       for (const auto &line : lines) {
-        XDrawString(display, window, gc_white, box.x + padding, txt_y,
-                    line.c_str(), line.length());
+        XDrawString(display, window, gc_white, box.x + padding, txt_y, line.c_str(), line.length());
         txt_y += line_height;
       }
     }
@@ -490,20 +486,18 @@ public:
 
   Options options;
   unsigned long argbPixel(int rgb, int alpha) const {
-    return (static_cast<unsigned long>(alpha & 0xFF) << 24) |
-           static_cast<unsigned long>(rgb);
+    return (static_cast<unsigned long>(alpha & 0xFF) << 24) | static_cast<unsigned long>(rgb);
   }
   // Full-opacity colors; on the ARGB visual use explicit pixels so the
   // fade path and the steady-state path agree.
   unsigned long fullOpacityWhite() const {
-    return argbVisual ? argbPixel(0xFFFFFF, 255)
-                      : WhitePixel(display, screen);
+    return argbVisual ? argbPixel(0xFFFFFF, 255) : WhitePixel(display, screen);
   }
   unsigned long fullOpacityBlack() const {
-    return argbVisual ? argbPixel(0x000000, 255)
-                      : BlackPixel(display, screen);
+    return argbVisual ? argbPixel(0x000000, 255) : BlackPixel(display, screen);
   }
-private:
+
+ private:
   Display *display = nullptr;
   int screen = 0;
   Window root = 0;
@@ -513,7 +507,7 @@ private:
   GC gc_white = nullptr;
   GC gc_black = nullptr;
   GC gc_stipple = nullptr;
-  XFontStruct* font_struct = nullptr;
+  XFontStruct *font_struct = nullptr;
   int xi_opcode = 0;
   bool xi2_enabled = false;
 };
@@ -537,4 +531,3 @@ int main(int argc, char **argv) {
   }
   return 0;
 }
-
