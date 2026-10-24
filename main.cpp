@@ -280,6 +280,7 @@ public:
     if (XMatchVisualInfo(display, screen, 32, TrueColor, &vinfo)) {
       visual = vinfo.visual;
       depth = vinfo.depth;
+      argbVisual = true;
     }
 
     XSetWindowAttributes attrs;
@@ -334,14 +335,14 @@ public:
 
     // GCs
     gc_white = XCreateGC(display, window, 0, nullptr);
-    XSetForeground(display, gc_white, WhitePixel(display, screen));
+    XSetForeground(display, gc_white, fullOpacityWhite());
 
     gc_black = XCreateGC(display, window, 0, nullptr);
-    XSetForeground(display, gc_black, BlackPixel(display, screen));
+    XSetForeground(display, gc_black, fullOpacityBlack());
     
     // Stippled line GC
     gc_stipple = XCreateGC(display, window, 0, nullptr);
-    XSetForeground(display, gc_stipple, BlackPixel(display, screen));
+    XSetForeground(display, gc_stipple, fullOpacityBlack());
     XSetLineAttributes(display, gc_stipple, 1, LineOnOffDash, CapButt, JoinMiter);
     const char dashes[] = {1, 1}; 
     XSetDashes(display, gc_stipple, 0, dashes, sizeof(dashes));
@@ -444,11 +445,9 @@ public:
           // Soft fade: keep rendering with the crosshair alpha ramping down.
           const int alpha = 255 - static_cast<int>(
               255.0 * idleMs / options.fadeDurationMs);
-          const unsigned long white = (static_cast<unsigned long>(alpha) << 24) | 0xFFFFFF;
-          const unsigned long black = static_cast<unsigned long>(alpha) << 24;
-          XSetForeground(display, gc_white, white);
-          XSetForeground(display, gc_black, black);
-          XSetForeground(display, gc_stipple, black);
+          XSetForeground(display, gc_white, argbPixel(0xFFFFFF, alpha));
+          XSetForeground(display, gc_black, argbPixel(0x000000, alpha));
+          XSetForeground(display, gc_stipple, argbPixel(0x000000, alpha));
           fading = true;
         } else {
           if (!hidden) {
@@ -541,9 +540,9 @@ public:
 
       if (!fading) {
         // Full-opacity colors; a previous fade may have left dimmed GCs.
-        XSetForeground(display, gc_white, WhitePixel(display, screen));
-        XSetForeground(display, gc_black, BlackPixel(display, screen));
-        XSetForeground(display, gc_stipple, BlackPixel(display, screen));
+        XSetForeground(display, gc_white, fullOpacityWhite());
+        XSetForeground(display, gc_black, fullOpacityBlack());
+        XSetForeground(display, gc_stipple, fullOpacityBlack());
       }
 
       // Draw white thick crosshair
@@ -573,12 +572,27 @@ public:
   }
 
   Options options;
+  unsigned long argbPixel(int rgb, int alpha) const {
+    return (static_cast<unsigned long>(alpha & 0xFF) << 24) |
+           static_cast<unsigned long>(rgb);
+  }
+  // Full-opacity colors; on the ARGB visual use explicit pixels so the
+  // fade path and the steady-state path agree.
+  unsigned long fullOpacityWhite() const {
+    return argbVisual ? argbPixel(0xFFFFFF, 255)
+                      : WhitePixel(display, screen);
+  }
+  unsigned long fullOpacityBlack() const {
+    return argbVisual ? argbPixel(0x000000, 255)
+                      : BlackPixel(display, screen);
+  }
 private:
   Display *display = nullptr;
   int screen = 0;
   Window root = 0;
   Window window = 0;
   Colormap colormap = 0;
+  bool argbVisual = false;
   GC gc_white = nullptr;
   GC gc_black = nullptr;
   GC gc_stipple = nullptr;
