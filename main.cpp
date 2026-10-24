@@ -417,7 +417,7 @@ public:
       unsigned int mask = 0;
       Window child_return, root_return;
 
-      if (!waitForWakeup(min_interval)) {
+      if (!waitForWakeup(last_motion)) {
         continue;
       }
       if (!XQueryPointer(display, root, &root_return, &child_return, &root_x,
@@ -519,15 +519,27 @@ public:
     }
   }
 
-  bool waitForWakeup(std::chrono::milliseconds min_interval) {
+  bool waitForWakeup(std::chrono::steady_clock::time_point last_motion) {
     pollfd pfd{ConnectionNumber(display), POLLIN, 0};
+    int timeoutMs;
     if (options.pollIntervalMs > 0) {
       // Polling mode: sleep the requested interval, then read the pointer.
-      poll(&pfd, 1, options.pollIntervalMs);
+      timeoutMs = options.pollIntervalMs;
+    } else if (options.fadeMs > 0) {
+      // Event mode with idle hiding: wake at the next idle deadline so the
+      // overlay hides (or finishes fading) even without motion events.
+      const auto now = std::chrono::steady_clock::now();
+      const auto elapsed =
+          std::chrono::duration_cast<std::chrono::milliseconds>(now - last_motion)
+              .count();
+      const long remaining = options.fadeMs - elapsed;
+      timeoutMs = static_cast<int>(remaining > 0 ? remaining : 0);
     } else {
-      // Event mode: wake up on XI2 raw motion (bounded by min_interval).
-      poll(&pfd, 1, static_cast<int>(min_interval.count()));
+      // Event mode: XI2 raw motion events wake us; the poll only guards
+      // against a missed event so the selection box still refreshes.
+      timeoutMs = 250;
     }
+    poll(&pfd, 1, timeoutMs);
     XEvent ev;
     while (XPending(display)) {
       XNextEvent(display, &ev);
