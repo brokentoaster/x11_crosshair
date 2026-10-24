@@ -284,7 +284,8 @@ public:
 
     XSetWindowAttributes attrs;
     std::memset(&attrs, 0, sizeof(attrs));
-    attrs.colormap = XCreateColormap(display, root, visual, AllocNone);
+    colormap = XCreateColormap(display, root, visual, AllocNone);
+    attrs.colormap = colormap;
     attrs.border_pixel = 0;
     attrs.background_pixmap = None; 
     attrs.override_redirect = True; 
@@ -362,6 +363,7 @@ public:
     if (gc_black) XFreeGC(display, gc_black);
     if (gc_stipple) XFreeGC(display, gc_stipple);
     if (window) XDestroyWindow(display, window);
+    if (colormap) XFreeColormap(display, colormap);
     if (display) XCloseDisplay(display);
   }
 
@@ -576,6 +578,7 @@ private:
   int screen = 0;
   Window root = 0;
   Window window = 0;
+  Colormap colormap = 0;
   GC gc_white = nullptr;
   GC gc_black = nullptr;
   GC gc_stipple = nullptr;
