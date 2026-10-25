@@ -324,10 +324,20 @@ class CrosshairOverlay {
           // delivery to focused clients. Auto-repeat dedupes: keydown while
           // already held is a no-op state update.
           const auto *raw = static_cast<XIRawEvent *>(ev.xcookie.data);
-          keyHeld = (ev.xcookie.evtype == XI_RawKeyPress) &&
-                    (raw->detail == keyHeldCode);
-          if (ev.xcookie.evtype == XI_RawKeyRelease && raw->detail == keyHeldCode) {
-            keyHeld = false;
+          if (options.keyToggle) {
+            // Toggle mode: a press of the watched key flips the latch;
+            // releases and auto-repeat presses are ignored. keyHeld mirrors
+            // the latch so visibility and change detection work unchanged.
+            if (raw->detail == keyHeldCode) {
+              keyHeld = updateToggleLatch(
+                  toggleLatch, ev.xcookie.evtype == XI_RawKeyPress);
+            }
+          } else {
+            keyHeld = (ev.xcookie.evtype == XI_RawKeyPress) &&
+                      (raw->detail == keyHeldCode);
+            if (ev.xcookie.evtype == XI_RawKeyRelease && raw->detail == keyHeldCode) {
+              keyHeld = false;
+            }
           }
         }
         XFreeEventData(display, &ev.xcookie);
@@ -447,6 +457,7 @@ class CrosshairOverlay {
   bool keyInverted = false;
   bool keyHeld = false;
   bool lastKeyHeld = false;
+  ToggleLatch toggleLatch;
   KeyCode keyHeldCode = 0;
 };
 
