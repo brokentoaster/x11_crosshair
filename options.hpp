@@ -122,15 +122,15 @@ static int parseArgs(int argc, char **argv, Options &opts) {
         printUsage(argv[0], std::cerr);
         return 1;
       }
+      // Any explicit --key-mode enables key watching with the default key.
+      if (opts.keyName.empty()) {
+        opts.keyName = "Shift_L";
+      }
     } else {
       std::cerr << "Unknown option: " << arg << "\n";
       printUsage(argv[0], std::cerr);
       return 1;
     }
-  }
-  // Passing --key-mode alone opts into key watching with the default key.
-  if (opts.keyName.empty() && (opts.keyInverted || opts.keyToggle)) {
-    opts.keyName = "Shift_L";
   }
   return 0;
 }

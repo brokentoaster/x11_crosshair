@@ -95,11 +95,80 @@ static void testEvaluateIdleFade() {
   CHECK(s.hideNow && !s.fading);
 }
 
+static void testKeyModeParsing() {
+  Options o;
+  CHECK(parse({"--key-mode", "normal"}, o) == 0);
+  CHECK(o.keyName == "Shift_L");
+  CHECK(o.keyInverted == false);
+  CHECK(parse({"--key-mode", "inverted"}, o) == 0);
+  CHECK(o.keyInverted == true);
+  CHECK(parse({"--key", "Control_L", "--key-mode", "normal"}, o) == 0);
+  CHECK(o.keyName == "Control_L");
+  CHECK(o.keyInverted == false);
+}
+
+static void testToggleModeParsing() {
+  Options o;
+  CHECK(parse({"--key-mode", "toggle"}, o) == 0);
+  CHECK(o.keyToggle == true);
+  CHECK(o.keyInverted == false);
+  CHECK(o.keyName == "Shift_L");
+  CHECK(parse({"--key", "Control_L", "--key-mode", "toggle"}, o) == 0);
+  CHECK(o.keyName == "Control_L");
+  CHECK(o.keyToggle == true);
+  CHECK(parse({"--key-mode", "bogus"}, o) == 1);
+  CHECK(parse({"--key-mode"}, o) == 1);
+}
+
+static void testToggleLatch() {
+  ToggleLatch latch;
+  CHECK(latch.visible == false);
+
+  // Press flips it on; release does not change it.
+  CHECK(updateToggleLatch(latch, true) == true);
+  CHECK(updateToggleLatch(latch, false) == true);
+
+  // A press while down (auto-repeat) is ignored; release still no-op.
+  CHECK(updateToggleLatch(latch, true) == false);
+  CHECK(updateToggleLatch(latch, true) == false);
+  CHECK(updateToggleLatch(latch, false) == false);
+
+  // After a release, the next press flips it back on.
+  CHECK(updateToggleLatch(latch, true) == true);
+  CHECK(updateToggleLatch(latch, false) == true);
+}
+
+static void testToggleVisibility() {
+  // Toggle mode uses the latch as keyHeld with inverted=false.
+  ToggleLatch latch;
+  CHECK(updateToggleLatch(latch, true) == true);
+  IdleState s = evaluateVisibility(0, 0, 0, true, latch.visible, false);
+  CHECK(!s.hideNow && !s.fading);
+  s = evaluateVisibility(1000, 0, 500, true, latch.visible, false);
+  CHECK(!s.hideNow && !s.fading);
+
+  // Flipped off: hidden even though the pointer is fresh.
+  CHECK(updateToggleLatch(latch, false) == true);
+  CHECK(updateToggleLatch(latch, true) == false);
+  s = evaluateVisibility(0, 0, 0, true, latch.visible, false);
+  CHECK(s.hideNow && !s.fading);
+
+  // Idle hiding still applies while the latch says show.
+  CHECK(updateToggleLatch(latch, false) == false);
+  CHECK(updateToggleLatch(latch, true) == true);
+  s = evaluateVisibility(1000, 0, 2000, true, latch.visible, false);
+  CHECK(s.hideNow && !s.fading);
+}
+
 int main() {
   testDefaults();
   testValidValues();
   testInvalidValues();
   testHelp();
+  testKeyModeParsing();
+  testToggleModeParsing();
+  testToggleLatch();
+  testToggleVisibility();
   testEvaluateIdleDisabled();
   testEvaluateIdleTimeout();
   testEvaluateIdleFade();
