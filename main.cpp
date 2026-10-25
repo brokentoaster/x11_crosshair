@@ -88,9 +88,18 @@ class CrosshairOverlay {
         int major = 2;
         int minor = 0;
         if (XIQueryVersion(display, &major, &minor) == Success) {
+          // Raw motion is event 17 (3 mask bytes); raw key events (13/14) fit in
+          // the same buffer since XIMaskLen covers the largest event.
           unsigned char mask_data[XIMaskLen(XI_RawMotion)];
           std::memset(mask_data, 0, sizeof(mask_data));
           XISetMask(mask_data, XI_RawMotion);
+          if (keyWatching) {
+            // Passive: raw key events are delivered to every client that
+            // selects them and are not consumed, so other applications are
+            // unaffected. No grabs.
+            XISetMask(mask_data, XI_RawKeyPress);
+            XISetMask(mask_data, XI_RawKeyRelease);
+          }
           XIEventMask mask{};
           mask.deviceid = XIAllMasterDevices;
           mask.mask_len = sizeof(mask_data);
@@ -98,6 +107,13 @@ class CrosshairOverlay {
           XISelectEvents(display, root, &mask, 1);
           xi2_enabled = true;
           this->xi_opcode = xi_opcode;
+          if (keyWatching) {
+            // Default when watching was enabled without an explicit --key.
+            const KeySym sym =
+                XStringToKeysym(options.keyName.empty() ? "Shift_L"
+                                                        : options.keyName.c_str());
+            keyHeldCode = XKeysymToKeycode(display, sym);
+          }
         }
       }
     }
@@ -294,6 +310,18 @@ class CrosshairOverlay {
           XGetEventData(display, &ev.xcookie)) {
         if (ev.xcookie.evtype == XI_RawMotion) {
           // We'll query absolute position in the caller.
+        } else if (keyWatching && keyHeldCode &&
+                   (ev.xcookie.evtype == XI_RawKeyPress ||
+                    ev.xcookie.evtype == XI_RawKeyRelease)) {
+          // Raw events are passive: consuming our copy does not affect
+          // delivery to focused clients. Auto-repeat dedupes: keydown while
+          // already held is a no-op state update.
+          const auto *raw = static_cast<XIRawEvent *>(ev.xcookie.data);
+          keyHeld = (ev.xcookie.evtype == XI_RawKeyPress) &&
+                    (raw->detail == keyHeldCode);
+          if (ev.xcookie.evtype == XI_RawKeyRelease && raw->detail == keyHeldCode) {
+            keyHeld = false;
+          }
         }
         XFreeEventData(display, &ev.xcookie);
       }
