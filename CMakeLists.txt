@@ -7,10 +7,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Find X11
 find_package(X11 REQUIRED)
 
-# Use pkg-config to find Xfixes
+# Use pkg-config to find Xfixes and Xi (IMPORTED_TARGET carries include dirs,
+# library dirs, and libs together, which matters on systems like FreeBSD where
+# X libraries live in /usr/local/lib, outside the default linker search path)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(XFIXES REQUIRED xfixes)
-pkg_check_modules(XI REQUIRED xi)
+pkg_check_modules(XFIXES REQUIRED IMPORTED_TARGET xfixes)
+pkg_check_modules(XI REQUIRED IMPORTED_TARGET xi)
+find_package(Threads REQUIRED)
 
 # Single executable: overlay with runtime-selectable modes
 add_executable(x11_crosshair main.cpp)
@@ -20,16 +23,15 @@ add_executable(x11_crosshair main.cpp)
 # Include directories from found packages
 target_include_directories(x11_crosshair PRIVATE
         ${X11_INCLUDE_DIR}
-        ${XFIXES_INCLUDE_DIRS}
-        ${XI_INCLUDE_DIRS}
 )
 
 
 # Link required libraries
 target_link_libraries(x11_crosshair PRIVATE
         ${X11_LIBRARIES}
-        ${XFIXES_LIBRARIES}
-        ${XI_LIBRARIES}
+        PkgConfig::XFIXES
+        PkgConfig::XI
+        Threads::Threads
 )
 
 
@@ -64,12 +66,4 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
             $<$<AND:$<CONFIG:Release>,$<CXX_COMPILER_ID:GNU>>:-Wl,-O1>
             $<$<AND:$<CONFIG:Release>,$<CXX_COMPILER_ID:GNU>>:-Wl,--as-needed>
     )
-endif()
-
-# If pkg-config reported library dirs, ensure the linker can find them
-if(XFIXES_LIBRARY_DIRS)
-    link_directories(${XFIXES_LIBRARY_DIRS})
-endif()
-if(XI_LIBRARY_DIRS)
-    link_directories(${XI_LIBRARY_DIRS})
 endif()
