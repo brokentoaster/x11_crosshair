@@ -133,6 +133,8 @@ struct IdleState {
   int alpha = 255;
 };
 
+// Idle/fade state machine for pointer inactivity; inputs in ms so it is
+// testable without X.
 static IdleState evaluateIdle(int fadeMs, int fadeDurationMs, long idleMsSinceMotion) {
   IdleState state;
   if (fadeMs <= 0 || idleMsSinceMotion < fadeMs) {
@@ -148,6 +150,23 @@ static IdleState evaluateIdle(int fadeMs, int fadeDurationMs, long idleMsSinceMo
       state.alpha = 0;
     }
   } else {
+    state.hideNow = true;
+  }
+  return state;
+}
+
+// Combined visibility: hide when the key state says hide OR the idle state
+// says hide (both sources must agree on show to render). keyWatching=false
+// keeps today's always-visible behavior.
+inline IdleState evaluateVisibility(int fadeMs, int fadeDurationMs,
+                                    long idleMsSinceMotion, bool keyWatching,
+                                    bool keyHeld, bool keyInverted) {
+  const bool keyWantsVisible =
+      !keyWatching || (keyHeld != keyInverted);
+  IdleState state = evaluateIdle(fadeMs, fadeDurationMs, idleMsSinceMotion);
+  if (!keyWantsVisible) {
+    // Key suppression wins over any fade state.
+    state.fading = false;
     state.hideNow = true;
   }
   return state;

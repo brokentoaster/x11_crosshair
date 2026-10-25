@@ -204,6 +204,7 @@ class CrosshairOverlay {
 
       const bool position_changed = (root_x != last_x || root_y != last_y);
       const bool text_changed = (lines != last_lines);
+      const bool key_changed = (keyHeld != lastKeyHeld);
       const auto now = std::chrono::steady_clock::now();
 
       if (position_changed) {
@@ -214,16 +215,18 @@ class CrosshairOverlay {
       const auto idleMsSinceMotion =
           std::chrono::duration_cast<std::chrono::milliseconds>(now - last_motion).count();
       const IdleState idle =
-          evaluateIdle(options.fadeMs, options.fadeDurationMs, idleMsSinceMotion);
+          evaluateVisibility(options.fadeMs, options.fadeDurationMs, idleMsSinceMotion,
+                             keyWatching, keyHeld, keyInverted);
       if (idle.hideNow) {
         if (!hidden) {
-          // Idle: hide by clearing the bounding region; keep the window
-          // mapped and the click-through input region untouched. Any pointer
-          // motion wakes the loop and re-shows via the render path.
+          // Hide by clearing the bounding region; keep the window mapped and
+          // the click-through input region untouched. Pointer motion or a
+          // key transition wakes the loop and re-shows via the render path.
           applyEmptyBoundingShape();
           hidden = true;
         }
         fading = false;
+        lastKeyHeld = keyHeld;
         continue;
       }
       hidden = false;
@@ -234,13 +237,17 @@ class CrosshairOverlay {
         XSetForeground(display, gc_stipple, argbPixel(0x000000, idle.alpha));
       }
 
-      if (!position_changed && !text_changed && !fading && (now - last_render) < min_interval) {
+      // Render immediately on a key transition so the change lands within
+      // one frame of the key event.
+      if (!position_changed && !text_changed && !fading && !key_changed &&
+          (now - last_render) < min_interval) {
         continue;
       }
 
       last_x = root_x;
       last_y = root_y;
       last_lines = lines;
+      lastKeyHeld = keyHeld;
       last_render = now;
 
       // 2. Calculate text box geometry
@@ -439,6 +446,7 @@ class CrosshairOverlay {
   bool keyWatching = false;
   bool keyInverted = false;
   bool keyHeld = false;
+  bool lastKeyHeld = false;
   KeyCode keyHeldCode = 0;
 };
 
