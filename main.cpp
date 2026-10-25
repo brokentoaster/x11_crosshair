@@ -26,6 +26,15 @@
 class CrosshairOverlay {
  public:
   explicit CrosshairOverlay(const Options &opts) : options(opts) {
+    // Resolve the watched key for the default display's key mapping.
+    if (!opts.keyName.empty()) {
+      keyWatching = true;
+      keyInverted = opts.keyInverted;
+      const KeySym sym = XStringToKeysym(opts.keyName.c_str());
+      if (sym == NoSymbol) {
+        throw std::runtime_error("Unknown key name: " + opts.keyName);
+      }
+    }
     display = XOpenDisplay(nullptr);
     if (!display)
       throw std::runtime_error("Failed to open X display");
@@ -399,6 +408,10 @@ class CrosshairOverlay {
   XFontStruct *font_struct = nullptr;
   int xi_opcode = 0;
   bool xi2_enabled = false;
+  bool keyWatching = false;
+  bool keyInverted = false;
+  bool keyHeld = false;
+  KeyCode keyHeldCode = 0;
 };
 
 int main(int argc, char **argv) {

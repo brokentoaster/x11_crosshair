@@ -13,6 +13,8 @@ struct Options {
   int thickness = 3;
   int fadeMs = 0;         // 0 = never hide on idle
   int fadeDurationMs = 0; // 0 = hide abruptly; needs --fade-ms > 0
+  std::string keyName;    // empty = key watching disabled
+  bool keyInverted = false; // true = visible normally, hidden while held
 };
 
 static void printUsage(const char *argv0, std::ostream &os) {
@@ -26,8 +28,13 @@ static void printUsage(const char *argv0, std::ostream &os) {
      << " (0 = never hide, default)\n"
      << "  --fade-duration MS  Soft fade-out duration after the idle timeout"
      << " (needs --fade-ms; 0 = abrupt, default)\n"
+     << "  --key NAME        Watch key NAME (e.g. Shift_L); crosshair visible"
+     << " only while held (default Shift_L when watching is enabled)\n"
+     << "  --key-mode MODE   normal (visible only while key held) or inverted"
+     << " (visible normally, hidden while held; default normal)\n"
      << "  --help            Show this help\n"
-     << "Defaults reproduce the plain `x11_crosshair` behaviour.\n";
+     << "With no options the overlay is always visible (key watching is"
+     << " opt-in via --key or --key-mode).\n";
 }
 
 // Returns 0 to continue, 1 on error (usage printed), 2 if --help printed.
@@ -81,6 +88,29 @@ static int parseArgs(int argc, char **argv, Options &opts) {
           opts.thickness <= 0 || opts.thickness > 200) {
         if (opts.thickness <= 0 || opts.thickness > 200)
           std::cerr << "Invalid --thickness value: must be 1..200\n";
+        printUsage(argv[0], std::cerr);
+        return 1;
+      }
+    } else if (arg == "--key") {
+      if (i + 1 >= argc || argv[i + 1][0] == '\0') {
+        std::cerr << "--key requires a keysym name\n";
+        printUsage(argv[0], std::cerr);
+        return 1;
+      }
+      opts.keyName = argv[++i];
+    } else if (arg == "--key-mode") {
+      if (i + 1 >= argc) {
+        std::cerr << "--key-mode requires a value (normal|inverted)\n";
+        printUsage(argv[0], std::cerr);
+        return 1;
+      }
+      const std::string mode = argv[++i];
+      if (mode == "normal") {
+        opts.keyInverted = false;
+      } else if (mode == "inverted") {
+        opts.keyInverted = true;
+      } else {
+        std::cerr << "Invalid --key-mode value: " << mode << " (use normal or inverted)\n";
         printUsage(argv[0], std::cerr);
         return 1;
       }
