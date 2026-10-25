@@ -15,6 +15,7 @@ struct Options {
   int fadeDurationMs = 0; // 0 = hide abruptly; needs --fade-ms > 0
   std::string keyName;    // empty = key watching disabled
   bool keyInverted = false; // true = visible normally, hidden while held
+  bool keyToggle = false;   // true = each press toggles visibility
 };
 
 static void printUsage(const char *argv0, std::ostream &os) {
@@ -30,8 +31,9 @@ static void printUsage(const char *argv0, std::ostream &os) {
      << " (needs --fade-ms; 0 = abrupt, default)\n"
      << "  --key NAME        Watch key NAME (e.g. Shift_L); crosshair visible"
      << " only while held (default Shift_L when watching is enabled)\n"
-     << "  --key-mode MODE   normal (visible only while key held) or inverted"
-     << " (visible normally, hidden while held; default normal)\n"
+     << "  --key-mode MODE   normal (visible only while key held), inverted"
+     << " (visible normally, hidden while held; default normal), or toggle"
+     << " (each press switches the crosshair on or off; starts hidden)\n"
      << "  --help            Show this help\n"
      << "With no options the overlay is always visible (key watching is"
      << " opt-in via --key or --key-mode).\n";
@@ -100,17 +102,23 @@ static int parseArgs(int argc, char **argv, Options &opts) {
       opts.keyName = argv[++i];
     } else if (arg == "--key-mode") {
       if (i + 1 >= argc) {
-        std::cerr << "--key-mode requires a value (normal|inverted)\n";
+        std::cerr << "--key-mode requires a value (normal|inverted|toggle)\n";
         printUsage(argv[0], std::cerr);
         return 1;
       }
       const std::string mode = argv[++i];
       if (mode == "normal") {
         opts.keyInverted = false;
+        opts.keyToggle = false;
       } else if (mode == "inverted") {
         opts.keyInverted = true;
+        opts.keyToggle = false;
+      } else if (mode == "toggle") {
+        opts.keyInverted = false;
+        opts.keyToggle = true;
       } else {
-        std::cerr << "Invalid --key-mode value: " << mode << " (use normal or inverted)\n";
+        std::cerr << "Invalid --key-mode value: " << mode
+                  << " (use normal, inverted, or toggle)\n";
         printUsage(argv[0], std::cerr);
         return 1;
       }
@@ -119,6 +127,10 @@ static int parseArgs(int argc, char **argv, Options &opts) {
       printUsage(argv[0], std::cerr);
       return 1;
     }
+  }
+  // Passing --key-mode alone opts into key watching with the default key.
+  if (opts.keyName.empty() && (opts.keyInverted || opts.keyToggle)) {
+    opts.keyName = "Shift_L";
   }
   return 0;
 }
