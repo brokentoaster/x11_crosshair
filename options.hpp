@@ -136,6 +136,28 @@ static int parseArgs(int argc, char **argv, Options &opts) {
 }
 // --- Main Crosshair Class ---
 
+// Edge-driven toggle latch for --key-mode toggle. A key press flips the
+// latch; the release and any auto-repeat presses while the key is still
+// down are ignored. The latch starts hidden and is X-free and testable.
+struct ToggleLatch {
+  bool visible = false; // starts hidden in toggle mode
+  bool keyDown = false; // tracks the press edge to filter repeats
+};
+
+// Feed one raw-key state sample (keyPress = raw key currently down).
+// Returns the latch value to use as keyHeld for evaluateVisibility.
+inline bool updateToggleLatch(ToggleLatch &latch, bool keyPress) {
+  if (keyPress) {
+    if (!latch.keyDown) {
+      latch.keyDown = true;
+      latch.visible = !latch.visible;
+    }
+  } else {
+    latch.keyDown = false;
+  }
+  return latch.visible;
+}
+
 // Pure idle/fade state machine; inputs in ms since epoch-like clock so it
 // is testable without X.
 
