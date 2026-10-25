@@ -28,7 +28,7 @@ Requires `libx11-dev`, `libxfixes-dev`, `libxi-dev`, `pkg-config`, CMake ≥ 3.1
 
 ## Runtime options
 
-A single `main.cpp` implements all modes, selected by command-line flags (see README.md for the user-facing table): `--poll [MS]` switches to XQueryPointer polling (default 10 ms interval, skips all XI2 setup), `--no-selection` disables the text box and skips starting `SelectionMonitor`, `--thickness N` sets the crosshair line width (default 3), `--fade-ms N` hides the overlay after N ms without pointer motion (0 = off), and `--fade-duration MS` soft-fades out after that timeout. `--key NAME`/`--key-mode normal|inverted` (opt-in; passing either enables watching) tie visibility to a held key: normal = visible only while held, inverted = hidden while held. No-argument defaults reproduce the original behavior exactly.
+A single `main.cpp` implements all modes, selected by command-line flags (see README.md for the user-facing table): `--poll [MS]` switches to XQueryPointer polling (default 10 ms interval, skips all XI2 setup), `--no-selection` disables the text box and skips starting `SelectionMonitor`, `--thickness N` sets the crosshair line width (default 3), `--fade-ms N` hides the overlay after N ms without pointer motion (0 = off), and `--fade-duration MS` soft-fades out after that timeout. `--key NAME`/`--key-mode normal|inverted|toggle` (opt-in; passing either enables watching) tie visibility to the watched key: normal = visible only while held, inverted = hidden while held, toggle = each press switches visibility on or off (starts hidden). No-argument defaults reproduce the original behavior exactly.
 
 ## Event loop and selection architecture
 
