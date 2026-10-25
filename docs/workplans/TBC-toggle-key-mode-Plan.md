@@ -20,7 +20,7 @@
 
 ## Tasks
 
-- [ ] Task 1: Add `toggle` mode parsing and options state
+- [x] Task 1: Add `toggle` mode parsing and options state
   - Notes: Extend `--key-mode` usage text to `normal|inverted|toggle`;
     store the mode on `Options` instead of only the `keyInverted` bool
     (add `keyToggle = false`), keeping `keyWatching` semantics unchanged.
@@ -29,7 +29,7 @@
     still rejected with usage/exit 1 (spec AC 1, 7), and `--help` lists
     all three modes (spec AC 10).
 
-- [ ] Task 2: Extend the pure visibility/key state machine for toggle
+- [x] Task 2: Extend the pure visibility/key state machine for toggle
   - Notes: Add toggle-latch handling to the state machine alongside
     `evaluateVisibility`: a press edge flips the latch; holding/repeat does
     not; release is a no-op. Combine with idle hiding using the existing
@@ -39,7 +39,7 @@
   - Done when: press/release/repeat/combine-with-idle sequences behave per
     spec AC 1–3 and 5 at the state-machine level.
 
-- [ ] Task 3: Wire the toggle latch into the main event/poll loop
+- [x] Task 3: Wire the toggle latch into the main event/poll loop
   - Notes: In the XI2 raw key event path, feed `XI_RawKeyPress` (and ignore
     repeats/release for the latch) into the toggle latch. Treat a toggle
     transition as a key change so it bypasses the change guard and renders
@@ -50,7 +50,7 @@
     hidden, each press flips visibility, other apps still receive the key,
     and `--poll` behaves the same as event mode.
 
-- [ ] Task 4: Add unit tests for parsing and toggle state
+- [x] Task 4: Add unit tests for parsing and toggle state
   - Notes: Cover `--key-mode toggle` parsing, invalid-mode rejection, and
     latch sequences (press→visible, release→no change, repeat→no advance,
     combine with idle hiding). Extend the existing assert-harness patterns
@@ -59,7 +59,7 @@
   - Done when: `ctest` passes with the new tests and existing tests still
     pass (spec AC 9).
 
-- [ ] Task 5: Document the new mode
+- [x] Task 5: Document the new mode
   - Notes: Update the runtime-options table in README.md and the key-
     watching notes in AGENTS.md to describe `--key-mode toggle`, its
     start-hidden default, and that it uses the same no-grab raw XI2
